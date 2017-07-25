@@ -233,6 +233,8 @@ func Run(c *gin.Context) []error {
 
 	v.tagAndUpdate(taggableBans)
 
+	hit = true
+
 	return v.errs
 }
 
