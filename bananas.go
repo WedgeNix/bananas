@@ -2,6 +2,7 @@ package bananas
 
 import (
 	"encoding/csv"
+	"errors"
 	"sort"
 	"strconv"
 	"sync"
@@ -69,7 +70,7 @@ type Monitor struct {
 
 // Vars is the bananas data structure.
 type Vars struct {
-	context ctx
+	context *gin.Context
 
 	// settings holds all static vendor warehouse information.
 	settings map[string]vendorSetting
@@ -99,9 +100,8 @@ type Vars struct {
 	// taggables
 	taggables []order
 
-	failedEmails []string
-
-	// aws *awsapi.AwsController
+	// holds onto errors that need to be handled later for damage control
+	errs []error
 }
 
 type vendorSetting struct {
@@ -115,8 +115,19 @@ type vendorSetting struct {
 	Monitor       bool
 }
 
-// Init initializes all package-level variables.
-func Init(c *gin.Context) *Vars {
+func (v *Vars) err(err ...error) []error {
+	v.errs = append(v.errs, err...)
+	return v.errs
+}
+
+// Run initializes all package-level variables.
+func Run(c *gin.Context) []error {
+	var errs []error
+
+	if hit && !paperless {
+		return append(errs, errors.New("bananas already hit; we don't want to re-email everyone"))
+	}
+
 	// pull environmental variables
 	shipKey = os.Getenv("SHIP_API_KEY")
 	shipSecret = os.Getenv("SHIP_API_SECRET")
@@ -130,143 +141,123 @@ func Init(c *gin.Context) *Vars {
 	appUser = os.Getenv("APP_EMAIL_USER")
 	appPass = os.Getenv("APP_EMAIL_PASS")
 
-	context := ctx{c}
-	defer context.initErrorHandler()
-
 	// program-based settings
 	print.Goroutines(false)
 
 	print.Debug("grab vendor settings for bananas")
 
-	var req http.Request
-	un.Known(http.NewRequest(http.MethodGet, settingsURL, nil)).T(&req)
-
+	req, err := http.NewRequest(http.MethodGet, settingsURL, nil)
+	if err != nil {
+		return append(errs, err)
+	}
 	req.Header.Add("User", settingsUser)
 	req.Header.Add("Pass", settingsPass)
 
 	cl := http.Client{}
-	var resp http.Response
-	un.Known(cl.Do(&req)).T(&resp)
-
+	resp, err := cl.Do(req)
+	if err != nil {
+		return append(errs, err)
+	}
 	defer resp.Body.Close()
-	b := un.Bytes(ioutil.ReadAll(resp.Body))
+
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return append(errs, err)
+	}
 
 	print.Debug("convert settings file into our matching structure")
 
 	settings := map[string]vendorSetting{}
-	un.Wrap(json.Unmarshal(b, &settings))
+	err = json.Unmarshal(b, &settings)
+	if err != nil {
+		return append(errs, err)
+	}
 
 	printJSON(settings)
 
-	return &Vars{
-		context:      context,
-		settings:     settings,
-		login:        util.HTTPLogin{User: shipKey, Pass: shipSecret},
-		hasVendor:    regexp.MustCompile(`W[0-9](-[A-Z0-9]+)+`),
-		localOnly:    regexp.MustCompile(`(, *|^)[0-9A-Z]+ *\([0-9]+\)`),
-		quantity:     regexp.MustCompile(`[0-9]+(?:\))`),
-		number:       regexp.MustCompile(`[0-9]+`),
-		inWarehouse:  map[string]int{},
-		broken:       map[int]bool{},
-		vendors:      map[string]string{},
-		taggables:    []order{},
-		failedEmails: []string{},
-		// aws:          awsapi.New(),
+	v := Vars{
+		context:     c,
+		settings:    settings,
+		login:       util.HTTPLogin{User: shipKey, Pass: shipSecret},
+		hasVendor:   regexp.MustCompile(`W[0-9](-[A-Z0-9]+)+`),
+		localOnly:   regexp.MustCompile(`(, *|^)[0-9A-Z]+ *\([0-9]+\)`),
+		quantity:    regexp.MustCompile(`[0-9]+(?:\))`),
+		number:      regexp.MustCompile(`[0-9]+`),
+		inWarehouse: map[string]int{},
+		broken:      map[int]bool{},
+		vendors:     map[string]string{},
+		taggables:   []order{},
+		errs:        errs,
 	}
+
+	print.Debug("get orders that are awaiting shipment")
+
+	pay, err := v.getOrdersAwaitingShipment()
+	if err != nil {
+		return v.err(err)
+	}
+
+	print.Debug("filter the orders for drop ship only (except monitors)")
+
+	filteredPay := v.filterDropShipment(pay)
+
+	print.Debug("arrange the orders based on time-preference grading")
+
+	arrangedPay, errs := v.arrangeOrders(filteredPay)
+	v.err(errs...)
+
+	print.Debug("convert to stateful for in-order item quantities")
+
+	bans := v.statefulConversion(arrangedPay)
+
+	print.Debug("place higher needed quantities on top for emails")
+
+	sortedBans := bans.sort().print()
+
+	print.Debug("email the respective orders")
+
+	taggableBans, err := v.order(sortedBans)
+	if err != nil {
+		return v.err(err)
+	}
+
+	print.Debug("tag the orders on ShipStation")
+
+	v.tagAndUpdate(taggableBans)
+
+	return v.errs
 }
 
 func printJSON(v interface{}) {
 	print.Msg(string(un.Bytes(json.MarshalIndent(v, "", "    "))))
 }
 
-func (c ctx) initErrorHandler() {
-	err := recover()
-	if err == nil {
-		return
-	}
-	c.json(http.StatusBadRequest, "Bananas uninitialized...")
-}
-
-func (c ctx) runErrorHandler() {
-	err := recover()
-	if err == nil {
-		hit = true
-		c.json(http.StatusOK, "Bananas successful!")
-		return
-	}
-	c.json(http.StatusBadRequest, "Bananas unsuccessful...")
-}
-
-// Run runs bananas.
-func (v *Vars) Run() {
-	defer v.context.runErrorHandler()
-
-	if hit && !paperless {
-		panic("bananas already hit; we don't want to re-email everyone")
-	}
-
-	print.Debug("get orders that are awaiting shipment")
-
-	p := v.getOrdersAwaitingShipment()
-
-	print.Debug("filter the orders for drop ship only (except monitors)")
-
-	fp := v.filterDropShipment(p)
-
-	print.Debug("arrange the orders based on time-preference grading")
-
-	ap := v.arrangeOrders(fp)
-
-	print.Debug("convert to stateful for in-order item quantities")
-
-	b := v.statefulConversion(ap)
-
-	print.Debug("place higher needed quantities on top for emails")
-
-	b2 := b.sort().print()
-
-	print.Debug("email the respective orders")
-
-	tb := v.order(b2)
-
-	print.Debug("tag the orders on ShipStation")
-
-	v.tagAndUpdate(tb)
-}
-
-type ctx struct {
-	context *gin.Context
-}
-
-func (c ctx) json(code int, msg string) {
-	h := gin.H{
-		"Status":  http.StatusText(code),
-		"Message": msg,
-	}
-	c.context.JSON(code, h)
-	print.Msg(h)
-}
-
 // // GetOrdersAwaitingShipment grabs an HTTP response of orders, filtering in those awaiting shipment.
-func (v *Vars) getOrdersAwaitingShipment() *payload {
+func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	pg := 1
-	p := v.getPage(pg)
-	for p.Page < p.Pages {
-		pg++
-		orders := p.Orders
-		p = v.getPage(pg)
-		p.Orders = append(orders, p.Orders...)
+	pay, err := v.getPage(pg)
+	if err != nil {
+		return pay, err
 	}
-	return p
+	for pay.Page < pay.Pages {
+		pg++
+		ords := pay.Orders
+		pay, err = v.getPage(pg)
+		if err != nil {
+			return pay, err
+		}
+		pay.Orders = append(ords, pay.Orders...)
+	}
+	return pay, nil
 }
 
-func (v *Vars) getPage(page int) *payload {
-	Q := `orders?page=` + strconv.Itoa(page) + `&orderStatus=awaiting_shipment&pageSize=500`
-	r := v.login.Get(shipURL + Q)
-	p := payload{}
-	un.Wrap(json.NewDecoder(r.Body).Decode(&p))
-	defer r.Body.Close()
-	return &p
+func (v *Vars) getPage(page int) (*payload, error) {
+	query := `orders?page=` + strconv.Itoa(page) + `&orderStatus=awaiting_shipment&pageSize=500`
+	resp := v.login.Get(shipURL + query)
+	pay := payload{}
+	err := json.NewDecoder(resp.Body).Decode(&pay)
+	defer resp.Body.Close()
+	return &pay, err
 }
 
 // Payload is the first level of a ShipStation HTTP response body.
@@ -278,17 +269,17 @@ type payload struct {
 }
 
 // FilterDropShipment scans all items of all orders looking for drop ship candidates.
-func (v *Vars) filterDropShipment(p *payload) filteredPayload {
+func (v *Vars) filterDropShipment(pay *payload) filteredPayload {
 
 	print.Debug("copy payload and overwrite copy's orders")
 
-	orders := p.Orders
-	p.Orders = []order{}
+	ords := pay.Orders
+	pay.Orders = []order{}
 
 	print.Debug("go through all orders")
 
 OrderLoop:
-	for _, ord := range orders {
+	for _, ord := range ords {
 		// cf3 := ord.AdvancedOptions.CustomField3
 
 		// if strings.Contains(cf3, "FAILED:") {
@@ -329,18 +320,24 @@ OrderLoop:
 			ord.Items = append(ord.Items, itm)
 		}
 
-		if len(ord.Items) > 0 { // ignore adding order if no valid items
-			p.Orders = append(p.Orders, ord)
+		if len(ord.Items) < 1 {
+			continue
 		}
+
+		pay.Orders = append(pay.Orders, ord)
 	}
 
-	return filteredPayload(*p)
+	return filteredPayload(*pay)
 }
 
 // Print prints the payload in a super minimal format.
-func (v *Vars) print(p payload) {
+func (v *Vars) print(p payload) error {
 	for oi, o := range p.Orders {
 		for ii, i := range o.Items {
+			abcdf, err := o.grade(v)
+			if err != nil {
+				return err
+			}
 			// fmt.Printf("%d/%d ~ %d/%d : %dx : %v | %s; %s\n", oi+1, cap(p.Orders), ii+1, cap(o.Items), i.Quantity, o.grade(v), v.skupc(i), i.WarehouseLocation)
 			print.Msg(
 				oi+1, "/", cap(p.Orders),
@@ -349,44 +346,54 @@ func (v *Vars) print(p payload) {
 				" : ",
 				i.Quantity,
 				" : ",
-				o.grade(v),
+				abcdf,
 				" | ",
 				v.skupc(i), "; ",
 				i.WarehouseLocation,
 			)
 		}
 	}
+	return nil
 }
 
 // FilteredPayload is a type-safe payload already filtered.
 type filteredPayload payload
 
 // ArrangeOrders goes through and sorts/ranks orders based on best fulfillment.
-func (v *Vars) arrangeOrders(f filteredPayload) arrangedPayload {
+func (v *Vars) arrangeOrders(f filteredPayload) (arrangedPayload, []error) {
+	errs := []error{}
 	sort.Slice(f.Orders, func(i, j int) bool {
-		return f.Orders[i].grade(v) < f.Orders[j].grade(v)
+		iAbcdf, err := f.Orders[i].grade(v)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		jAbcdf, err := f.Orders[j].grade(v)
+		if err != nil {
+			errs = append(errs, err)
+		}
+		return iAbcdf < jAbcdf
 	})
-	return arrangedPayload(f)
+	return arrangedPayload(f), errs
 }
 
 // ArrangedPayload is a type-safe payload already arranged.
 type arrangedPayload payload
 
 // StatefulConversion maps from stateless item information to in-memory stateful representation.
-func (v *Vars) statefulConversion(a arrangedPayload) bananas {
+func (v *Vars) statefulConversion(arrangedPay arrangedPayload) bananas {
 	bans := bananas{}
 	innerBroke := []order{}
 
 	print.Debug("run over all orders/items")
 
-	for _, o := range a.Orders {
+	for _, ord := range arrangedPay.Orders {
 		var savedO *order
-		for _, i := range o.Items {
-			if v.broken[o.OrderID] {
+		for _, i := range ord.Items {
+			if v.broken[ord.OrderID] {
 				v.add(bans, &i)
-				savedO = &o
+				savedO = &ord
 			} else if v.inWarehouse[v.skupc(i)]-i.Quantity < 0 {
-				innerBroke = append(innerBroke, o)
+				innerBroke = append(innerBroke, ord)
 			} else {
 				v.inWarehouse[v.skupc(i)] -= i.Quantity
 			}
@@ -398,11 +405,11 @@ func (v *Vars) statefulConversion(a arrangedPayload) bananas {
 
 	print.Debug("hybrid orders that broke during stateful conversion")
 
-	for _, o := range innerBroke {
-		for _, i := range o.Items {
+	for _, ord := range innerBroke {
+		for _, i := range ord.Items {
 			v.add(bans, &i)
 		}
-		v.taggables = append(v.taggables, o)
+		v.taggables = append(v.taggables, ord)
 	}
 
 	print.Debug("before leaving, 'order' monitored quantities of zero")
@@ -410,7 +417,7 @@ func (v *Vars) statefulConversion(a arrangedPayload) bananas {
 	// print.Msg("monSku: ", monSku)
 	// print.Msg("onHand: ", v.inWarehouse[monSku])
 
-	for _, ord := range a.Orders {
+	for _, ord := range arrangedPay.Orders {
 		for _, itm := range ord.Items {
 			for vend, setting := range v.settings {
 				if !setting.Monitor || !itemVendMatch(itm, vend) || v.inWarehouse[v.skupc(itm)] != 0 {
@@ -531,7 +538,7 @@ func (v *Vars) removeMonitors(bans bananas) {
 }
 
 // Order sends email orders out to vendors for drop shipment product.
-func (v *Vars) order(b bananas) taggableBananas {
+func (v *Vars) order(b bananas) (taggableBananas, error) {
 
 	print.Debug("removing monitors from emails if not M/Th")
 
@@ -556,6 +563,9 @@ func (v *Vars) order(b bananas) taggableBananas {
 	var emailing sync.WaitGroup
 	start := time.Now()
 
+	var errMux sync.Mutex
+	errCh := make(chan error, 1)
+
 	for V, setting := range v.settings {
 		if setting.Monitor {
 			continue
@@ -575,7 +585,7 @@ func (v *Vars) order(b bananas) taggableBananas {
 			print.Debug("goroutine is starting to email a vendor")
 
 			t := time.Now()
-			po := util.S(v.settings[vendor].PONum, "-", t.Format("20060102"))
+			po := v.settings[vendor].PONum + "-" + t.Format("20060102")
 
 			inj := injection{
 				Vendor: vendor,
@@ -585,7 +595,10 @@ func (v *Vars) order(b bananas) taggableBananas {
 			}
 
 			buf := &bytes.Buffer{}
-			un.Wrap(tmpl.Execute(buf, inj))
+			err := tmpl.Execute(buf, inj)
+			if err != nil {
+				errCh <- err
+			}
 
 			to := []string{login.User}
 			if !sandbox {
@@ -610,8 +623,9 @@ func (v *Vars) order(b bananas) taggableBananas {
 							continue
 						} else {
 							print.Msg("Failed to send email! [FAILED]")
-							// v.failedEmails = append(v.failedEmails, vendor)
-							v.context.json(http.StatusBadRequest, "Bananas unsuccessful...")
+							errMux.Lock()
+							v.err(errors.New("failed to email " + vendor))
+							errMux.Unlock()
 							break
 						}
 					}
@@ -623,6 +637,12 @@ func (v *Vars) order(b bananas) taggableBananas {
 
 			emailing.Done()
 		}()
+
+		select {
+		case err := <-errCh:
+			return taggableBananas(b), err
+		default:
+		}
 	}
 
 	print.Debug("wait for goroutines to finish emailing")
@@ -630,11 +650,11 @@ func (v *Vars) order(b bananas) taggableBananas {
 	emailing.Wait()
 	print.Msg("Emailing round-trip: ", time.Since(start))
 
-	return taggableBananas(b)
+	return taggableBananas(b), nil
 }
 
 // TagAndUpdate tags all banana orders.
-func (v *Vars) tagAndUpdate(b taggableBananas) {
+func (v *Vars) tagAndUpdate(b taggableBananas) error {
 	print.Msg("TAGGABLE_COUNT: ", len(v.taggables))
 	tagged := make([]orderUpdate, len(v.taggables))
 
@@ -667,12 +687,18 @@ func (v *Vars) tagAndUpdate(b taggableBananas) {
 
 	if len(v.taggables) > 0 && !sandbox {
 		resp := v.login.Post(shipURL+`orders/createorders`, v.taggables)
-		print.Msg("CREATEORDERS_RESP: ", util.Read(resp.Body))
+		b, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			return err
+		}
+		print.Msg("CREATEORDERS_RESP: ", string(b))
 	}
 
 	if sandbox {
 		print.Msg("NEW_TAGGABLES: ", v.taggables)
 	}
+
+	return nil
 }
 
 // onlyUnique takes out duplicates for tagging orders.
@@ -714,18 +740,21 @@ type item struct {
 }
 
 // Grade grades the quantity requested versus what is in stock.
-func (i item) grade(v *Vars) float64 {
+func (i item) grade(v *Vars) (float64, error) {
 	skupc := v.skupc(i)
 	onHand, exists := v.inWarehouse[skupc]
 	if !exists {
-		onHand = v.quantities(i.WarehouseLocation)
+		onHand, err := v.quantities(i.WarehouseLocation)
+		if err != nil {
+			return 0, err
+		}
 		v.inWarehouse[skupc] = onHand
 	}
 	ratio := float64(i.Quantity) / float64(onHand)
 	if ratio > 1 {
 		ratio = math.Inf(1)
 	}
-	return ratio
+	return ratio, nil
 }
 
 // SKUPC returns the respective SKU or UPC depending on which the vendor uses.
@@ -737,7 +766,7 @@ func (v *Vars) skupc(i item) string {
 }
 
 func (v *Vars) poNum(i *item, t time.Time) string {
-	return util.S(v.settings[v.toVendor(i.Name)].PONum, "-", t.Format("20060102"))
+	return v.settings[v.toVendor(i.Name)].PONum + "-" + t.Format("20060102")
 }
 
 // Order is the second level of a ShipStation HTTP response body.
@@ -785,15 +814,19 @@ type order struct {
 }
 
 // Grade averages all item grades within an order or gets the quantity ratio of the item.
-func (o order) grade(v *Vars) float64 {
+func (o order) grade(v *Vars) (float64, error) {
 	ratios := 0.0
 	for _, i := range o.Items {
-		ratios += i.grade(v)
+		abcdf, err := i.grade(v)
+		if err != nil {
+			return 0, err
+		}
+		ratios += abcdf
 	}
 	if ratios == math.Inf(1) {
 		v.broken[o.OrderID] = true
 	}
-	return ratios / float64(len(o.Items))
+	return ratios / float64(len(o.Items)), nil
 }
 
 type orderUpdate struct {
@@ -857,15 +890,18 @@ func (v *Vars) toVendor(title string) string {
 }
 
 // quantities scans one type of warehouse in a location and sums its quantities.
-func (v *Vars) quantities(s string) int {
+func (v *Vars) quantities(s string) (int, error) {
 	sum := 0
 	houses := v.localOnly.FindAllString(s, -1)
 	for _, house := range houses {
 		quans := v.quantity.FindAllString(house, -1)
 		for _, quan := range quans {
-			val := un.Int(strconv.Atoi(v.number.FindString(quan)))
+			val, err := strconv.Atoi(v.number.FindString(quan))
+			if err != nil {
+				return sum, err
+			}
 			sum += val
 		}
 	}
-	return sum
+	return sum, nil
 }
