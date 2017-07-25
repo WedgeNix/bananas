@@ -1,0 +1,52 @@
+<html>
+    <head>
+        <style>
+            td.title {
+                border: 1px solid dimgray;
+                background-color: #F3F3F3;
+                font-weight: bold;
+                padding: 3px;
+                white-space: nowrap;
+            }
+
+            td.detail{
+                color:#808080;
+            }
+
+            body{
+                font-family: Arial;
+                font-size: 8pt;
+            }
+
+            table{
+                width:7in;
+                margin: 0px 0px -6px 0px;
+                border-collapse: collapse;
+            }
+            </style>
+    </head>
+
+    <body>
+        <h3>{{.Vendor}} - {{.Date}}</h3>
+
+        <h3>PO#: {{.PO}}</h3>
+        <h4>Here are today's orders</h4>
+                <h4>Thank you,</h4>
+        <table>
+            <tr>
+                <td class="title">Product ID</td>
+                <td class="title">Quantity</td>
+            </tr>
+            {{range .Bunch}}
+            <tr>
+                <td class="detail">{{.SKUPC}}</td>
+                <td class="detail">{{.Quantity}}</td>
+            </tr>
+            {{end}}
+        </table>
+
+        <h4>If this sheet is blank, please still send an ATS.</h4>
+
+        </body>
+</html>
+
