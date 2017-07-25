@@ -32,7 +32,7 @@ import (
 
 const (
 	// removes real world side effects to testing purposes
-	sandbox    = false
+	sandbox    = true
 	paperless  = false
 	ignoreCF1  = false
 	monitoring = false
@@ -66,9 +66,6 @@ var (
 type Monitor struct {
 	Pending bool
 }
-
-// AwsMonitor JUST FOR TESTING NEED TO REPLACEW
-type AwsMonitor map[string]Monitor
 
 // Vars is the bananas data structure.
 type Vars struct {
