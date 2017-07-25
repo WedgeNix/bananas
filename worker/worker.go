@@ -10,17 +10,20 @@ import (
 
 	"github.com/OuttaLineNomad/skuvault"
 	"github.com/WedgeNix/awsapi"
+	"github.com/WedgeNix/awsapi/dir"
+	"github.com/WedgeNix/util"
 	"github.com/gin-gonic/gin"
-	"github.com/wedgenix/awsapi/dir"
-	"github.com/wedgenix/util"
 )
 
 // StartWorker montitors SKU Vault for POs that are recived and processed.
 func StartWorker(c *gin.Context) error {
-	ac := awsapi.New()
+	ac, err := awsapi.New()
+	if err != nil {
+		return err
+	}
 
 	var monDir dir.Monitor
-	err := ac.OpenDir(``, monDir)
+	err = ac.OpenDir(``, monDir)
 	if err != nil {
 		return err
 	}
