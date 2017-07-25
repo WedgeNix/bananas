@@ -75,6 +75,8 @@ type Vars struct {
 	// settings holds all static vendor warehouse information.
 	settings map[string]vendorSetting
 
+	j *jit
+
 	login util.HTTPLogin
 
 	// hasVendor checks a warehouse location string to see if the item exists in quantity on their end.
@@ -175,9 +177,15 @@ func Run(c *gin.Context) []error {
 
 	printJSON(settings)
 
+	j, err := newJIT()
+	if err != nil {
+		return append(errs, err)
+	}
+
 	v := Vars{
 		context:     c,
 		settings:    settings,
+		j:           j,
 		login:       util.HTTPLogin{User: shipKey, Pass: shipSecret},
 		hasVendor:   regexp.MustCompile(`W[0-9](-[A-Z0-9]+)+`),
 		localOnly:   regexp.MustCompile(`(, *|^)[0-9A-Z]+ *\([0-9]+\)`),
@@ -235,29 +243,55 @@ func printJSON(v interface{}) {
 // // GetOrdersAwaitingShipment grabs an HTTP response of orders, filtering in those awaiting shipment.
 func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	pg := 1
-	pay, err := v.getPage(pg)
+
+	pay := &payload{}
+	reqs, secs, err := v.getPage(pg, pay)
 	if err != nil {
 		return pay, err
 	}
+
 	for pay.Page < pay.Pages {
 		pg++
 		ords := pay.Orders
-		pay, err = v.getPage(pg)
+
+		pay = &payload{}
+		reqs, secs, err = v.getPage(pg, pay)
 		if err != nil {
 			return pay, err
 		}
+		if reqs < 1 {
+			time.Sleep(time.Duration(secs) * time.Second)
+		}
+
 		pay.Orders = append(ords, pay.Orders...)
 	}
+
 	return pay, nil
 }
 
-func (v *Vars) getPage(page int) (*payload, error) {
-	query := `orders?page=` + strconv.Itoa(page) + `&orderStatus=awaiting_shipment&pageSize=500`
+func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
+	last := time.Now().UTC().String()  // to go into AWS
+	today := time.Now().UTC().String() // to go into AWS
+
+	query := `orders?page=` + strconv.Itoa(page) + `
+	&orderDateStart=` + last + `
+	&orderDateEnd=` + today + `
+	&pageSize=500`
+
 	resp := v.login.Get(shipURL + query)
-	pay := payload{}
-	err := json.NewDecoder(resp.Body).Decode(&pay)
+	err := json.NewDecoder(resp.Body).Decode(pay)
 	defer resp.Body.Close()
-	return &pay, err
+
+	reqs, err := strconv.Atoi(resp.Header.Get("X-Rate-Limit-Remaining"))
+	if err != nil {
+		return 0, 0, err
+	}
+	secs, err := strconv.Atoi(resp.Header.Get("X-Rate-Limit-Reset"))
+	if err != nil {
+		return reqs, 0, err
+	}
+
+	return reqs, secs, err
 }
 
 // Payload is the first level of a ShipStation HTTP response body.
@@ -755,6 +789,20 @@ func (i item) grade(v *Vars) (float64, error) {
 		ratio = math.Inf(1)
 	}
 	return ratio, nil
+}
+
+// go through all vendors in the settings and return the real name if
+// the location is in the item's warehouse location
+//
+// if for whatever reason it's not found, an empty string is returned
+func (v *Vars) getVend(i item) string {
+	for vend, set := range v.settings {
+		if !strings.Contains(i.WarehouseLocation, set.Location) {
+			continue
+		}
+		return vend
+	}
+	return ""
 }
 
 // SKUPC returns the respective SKU or UPC depending on which the vendor uses.
