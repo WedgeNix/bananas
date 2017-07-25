@@ -10,9 +10,9 @@ import (
 
 	"github.com/OuttaLineNomad/skuvault"
 	"github.com/WedgeNix/awsapi"
+	"github.com/WedgeNix/awsapi/dir"
+	"github.com/WedgeNix/util"
 	"github.com/gin-gonic/gin"
-	"github.com/wedgenix/awsapi/dir"
-	"github.com/wedgenix/util"
 )
 
 // StartWorker montitors SKU Vault for POs that are recived and processed.
