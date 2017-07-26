@@ -23,7 +23,7 @@ func StartWorker(c *gin.Context) error {
 	}
 
 	var monDir dir.Monitor
-	err = ac.OpenDir(``, monDir)
+	err = ac.OpenDir(awsapi.MonitorDir, monDir)
 	if err != nil {
 		return err
 	}

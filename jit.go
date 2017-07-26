@@ -19,7 +19,7 @@ type jit struct {
 
 // create a new just-in-time handler
 func newJIT() (*jit, error) {
-	j := jit{monDirName: os.Getenv("MONITOR_DIR")}
+	j := jit{monDirName: os.Getenv(awsapi.MonitorDir)}
 	ac, err := awsapi.New()
 	if err != nil {
 		return &j, err
