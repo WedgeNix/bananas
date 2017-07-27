@@ -22,8 +22,8 @@ func StartWorker(c *gin.Context) error {
 		return err
 	}
 
-	var monDir dir.Monitor
-	err = ac.OpenDir(awsapi.MonitorDir, monDir)
+	var monDir dir.BananasMon
+	err = ac.OpenDir(awsapi.BananasMonDir, monDir)
 	if err != nil {
 		return err
 	}
@@ -39,8 +39,8 @@ func StartWorker(c *gin.Context) error {
 		WarehouseID:        34,
 		TransactionType:    "Add",
 		TransactionReasons: []string{"receiving"},
-		FromDate:           time.Now().Add(-30 * time.Hour),
-		ToDate:             time.Now(),
+		FromDate:           util.LANow().Add(-25 * time.Hour),
+		ToDate:             util.LANow(),
 		PageNumber:         1,
 	}
 	var scanned string

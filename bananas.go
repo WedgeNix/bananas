@@ -16,17 +16,18 @@ import (
 	"time"
 
 	"github.com/WedgeNix/util"
+	wedgenix "github.com/WedgeNix/warehouse-settings"
 	"github.com/gin-gonic/gin"
 
 	"bytes"
 	"html/template"
-	"net/http"
 	"os"
 
 	"io/ioutil"
 
 	"encoding/json"
 
+	"github.com/WedgeNix/warehouse-settings/app"
 	"github.com/mrmiguu/print"
 	"github.com/mrmiguu/un"
 )
@@ -73,7 +74,9 @@ type Vars struct {
 	context *gin.Context
 
 	// settings holds all static vendor warehouse information.
-	settings map[string]vendorSetting
+	settings app.Bananas
+
+	vendExprs map[string]*regexp.Regexp
 
 	j *jit
 
@@ -106,16 +109,16 @@ type Vars struct {
 	errs []error
 }
 
-type vendorSetting struct {
-	Location      string
-	Email         []string
-	PONum         string
-	ShareOffPrice bool
-	WaitingPeriod int
-	FileDownload  bool
-	UseUPC        bool
-	Monitor       bool
-}
+// type vendorSetting struct {
+// 	Location      string
+// 	Email         []string
+// 	PONum         string
+// 	ShareOffPrice bool
+// 	WaitingPeriod int
+// 	FileDownload  bool
+// 	UseUPC        bool
+// 	Monitor       bool
+// }
 
 func (v *Vars) err(err ...error) []error {
 	v.errs = append(v.errs, err...)
@@ -134,8 +137,8 @@ func Run(c *gin.Context) []error {
 	shipKey = os.Getenv("SHIP_API_KEY")
 	shipSecret = os.Getenv("SHIP_API_SECRET")
 	settingsURL = os.Getenv("SETTINGS_URL")
-	settingsUser := os.Getenv("SETTINGS_USER")
-	settingsPass := os.Getenv("SETTINGS_PASS")
+	// settingsUser := os.Getenv("SETTINGS_USER")
+	// settingsPass := os.Getenv("SETTINGS_PASS")
 
 	comEmailUser = os.Getenv("COM_EMAIL_USER")
 	comEmailPass = os.Getenv("COM_EMAIL_PASS")
@@ -148,43 +151,60 @@ func Run(c *gin.Context) []error {
 
 	print.Debug("grab vendor settings for bananas")
 
-	req, err := http.NewRequest(http.MethodGet, settingsURL, nil)
-	if err != nil {
-		return append(errs, err)
-	}
-	req.Header.Add("User", settingsUser)
-	req.Header.Add("Pass", settingsPass)
+	// req, err := http.NewRequest(http.MethodGet, settingsURL, nil)
+	// if err != nil {
+	// 	return append(errs, err)
+	// }
+	// req.Header.Add("User", settingsUser)
+	// req.Header.Add("Pass", settingsPass)
 
-	cl := http.Client{}
-	resp, err := cl.Do(req)
-	if err != nil {
-		return append(errs, err)
-	}
-	defer resp.Body.Close()
+	// cl := http.Client{}
+	// resp, err := cl.Do(req)
+	// if err != nil {
+	// 	return append(errs, err)
+	// }
+	// defer resp.Body.Close()
 
-	b, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return append(errs, err)
-	}
+	// b, err := ioutil.ReadAll(resp.Body)
+	// if err != nil {
+	// 	return append(errs, err)
+	// }
 
 	print.Debug("convert settings file into our matching structure")
 
-	settings := map[string]vendorSetting{}
-	err = json.Unmarshal(b, &settings)
-	if err != nil {
-		return append(errs, err)
-	}
+	// err = json.Unmarshal(b, &settings)
+	// if err != nil {
+	// 	return append(errs, err)
+	// }
 
-	printJSON(settings)
+	wc := wedgenix.New()
+	sets := app.Bananas{}
+	wc.Do(&sets)
+
+	printJSON(sets)
+
+	// compile all vendor name expressions
+	exprs := map[string]*regexp.Regexp{}
+	for vend, set := range sets {
+		exprs[vend] = regexp.MustCompile(set.Regex)
+	}
 
 	j, err := newJIT()
 	if err != nil {
 		return append(errs, err)
 	}
 
+	print.Debug("reading from AWS")
+
+	err = j.readAWS()
+	if err != nil {
+		return append(errs, err)
+	}
+
 	v := Vars{
 		context:     c,
-		settings:    settings,
+		settings:    sets,
+		vendExprs:   exprs,
 		j:           j,
 		login:       util.HTTPLogin{User: shipKey, Pass: shipSecret},
 		hasVendor:   regexp.MustCompile(`W[0-9](-[A-Z0-9]+)+`),
@@ -242,7 +262,7 @@ func printJSON(v interface{}) {
 	print.Msg(string(un.Bytes(json.MarshalIndent(v, "", "    "))))
 }
 
-// // GetOrdersAwaitingShipment grabs an HTTP response of orders, filtering in those awaiting shipment.
+// GetOrdersAwaitingShipment grabs an HTTP response of orders, filtering in those awaiting shipment.
 func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	pg := 1
 
@@ -276,8 +296,8 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 	today := time.Now().UTC().String() // to go into AWS
 
 	query := `orders?page=` + strconv.Itoa(page) + `
-	&orderDateStart=` + last + `
-	&orderDateEnd=` + today + `
+	&createDateStart=` + last + `
+	&createDateEnd=` + today + `
 	&pageSize=500`
 
 	resp := v.login.Get(shipURL + query)
@@ -302,6 +322,19 @@ type payload struct {
 	Total  int
 	Page   int
 	Pages  int
+}
+
+func (v *Vars) isMon(i item) bool {
+	for vend, set := range v.settings {
+		if !set.Monitor {
+			continue
+		}
+		if !v.vendExprs[vend].MatchString(i.Name) {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // FilterDropShipment scans all items of all orders looking for drop ship candidates.
@@ -334,25 +367,10 @@ OrderLoop:
 		items := ord.Items
 		ord.Items = []item{}
 		for _, itm := range items {
-			monitor := false
-			// for vend, setting := range v.settings {
-			// 	if !(setting.Monitor && itemVendMatch(itm, vend)) {
-			// 		continue
-			// 	}
-			// 	monitor = true
-			// 	break
-			// }
 			w2 := v.hasVendor.MatchString(itm.WarehouseLocation)
-			// to continue, must be W2 or monitored
-			if !(w2 || monitor) {
+			if !w2 && !v.isMon(itm) {
 				continue
 			}
-			// if monitor {
-			// 	print.Msg("FOUND a monitor")
-			// 	print.Msg(itm)
-			// 	// monSku = itm.SKU
-			// }
-
 			ord.Items = append(ord.Items, itm)
 		}
 
@@ -455,8 +473,8 @@ func (v *Vars) statefulConversion(arrangedPay arrangedPayload) bananas {
 
 	for _, ord := range arrangedPay.Orders {
 		for _, itm := range ord.Items {
-			for vend, setting := range v.settings {
-				if !setting.Monitor || !itemVendMatch(itm, vend) || v.inWarehouse[v.skupc(itm)] != 0 {
+			for vend, set := range v.settings {
+				if !set.Monitor || !itemVendMatch(itm, vend) || v.inWarehouse[v.skupc(itm)] != 0 {
 					continue
 				}
 
@@ -561,8 +579,8 @@ func (b bunch) csv(name string) string {
 }
 
 func (v *Vars) removeMonitors(bans bananas) {
-	// for vend, setting := range v.settings {
-	// 	if !setting.Monitor {
+	// for vend, set := range v.settings {
+	// 	if !set.Monitor {
 	// 		continue
 	// 	}
 	// 	day := time.Now().Weekday()
@@ -602,8 +620,8 @@ func (v *Vars) order(b bananas) (taggableBananas, error) {
 	var errMux sync.Mutex
 	errCh := make(chan error, 1)
 
-	for V, setting := range v.settings {
-		if setting.Monitor {
+	for V, set := range v.settings {
+		if set.Monitor {
 			continue
 		}
 
@@ -620,7 +638,7 @@ func (v *Vars) order(b bananas) (taggableBananas, error) {
 
 			print.Debug("goroutine is starting to email a vendor")
 
-			t := time.Now()
+			t := util.LANow()
 			po := v.settings[vendor].PONum + "-" + t.Format("20060102")
 
 			inj := injection{
@@ -712,7 +730,7 @@ func (v *Vars) tagAndUpdate(b taggableBananas) error {
 			},
 		}
 		for _, item := range t.Items {
-			vSlice = append(vSlice, v.poNum(&item, time.Now()))
+			vSlice = append(vSlice, v.poNum(&item, util.LANow()))
 			upcSlice = append(upcSlice, item.UPC)
 		}
 		vList := onlyUnique(vSlice)
@@ -798,8 +816,11 @@ func (i item) grade(v *Vars) (float64, error) {
 //
 // if for whatever reason it's not found, an empty string is returned
 func (v *Vars) getVend(i item) string {
-	for vend, set := range v.settings {
-		if !strings.Contains(i.WarehouseLocation, set.Location) {
+	for vend, expr := range v.vendExprs {
+		// if !strings.Contains(i.WarehouseLocation, set.Location) {
+		// 	continue
+		// }
+		if !expr.MatchString(i.Name) {
 			continue
 		}
 		return vend
