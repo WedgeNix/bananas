@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/WedgeNix/util"
-	wedgenix "github.com/WedgeNix/warehouse-settings"
+	"github.com/WedgeNix/warehouse-settings"
 	"github.com/gin-gonic/gin"
 
 	"bytes"
@@ -37,7 +37,7 @@ const (
 	sandbox    = true
 	paperless  = false
 	ignoreCF1  = false
-	monitoring = false
+	monitoring = true
 
 	// shipURL is the http location for API calls.
 	shipURL = "https://ssapi.shipstation.com/"
@@ -92,6 +92,8 @@ type Vars struct {
 	quantity *regexp.Regexp
 	// number is just a series of numbers.
 	number *regexp.Regexp
+
+	onHand map[string]int
 
 	// inWarehouse keeps track of quantities of on-hand goods based on SKU/UPC.
 	inWarehouse map[string]int
@@ -189,15 +191,16 @@ func Run(c *gin.Context) []error {
 		exprs[vend] = regexp.MustCompile(set.Regex)
 	}
 
-	j, err := newJIT()
-	if err != nil {
+	jc, errc := newJIT()
+	if err := <-errc; err != nil {
 		return append(errs, err)
 	}
 
 	print.Debug("reading from AWS")
 
-	err = j.readAWS()
-	if err != nil {
+	j := <-jc
+	rdc, errc := j.readAWS()
+	if err := <-errc; err != nil {
 		return append(errs, err)
 	}
 
@@ -205,12 +208,13 @@ func Run(c *gin.Context) []error {
 		context:     c,
 		settings:    sets,
 		vendExprs:   exprs,
-		j:           j,
+		j:           &j,
 		login:       util.HTTPLogin{User: shipKey, Pass: shipSecret},
 		hasVendor:   regexp.MustCompile(`W[0-9](-[A-Z0-9]+)+`),
 		localOnly:   regexp.MustCompile(`(, *|^)[0-9A-Z]+ *\([0-9]+\)`),
 		quantity:    regexp.MustCompile(`[0-9]+(?:\))`),
 		number:      regexp.MustCompile(`[0-9]+`),
+		onHand:      map[string]int{},
 		inWarehouse: map[string]int{},
 		broken:      map[int]bool{},
 		vendors:     map[string]string{},
@@ -227,12 +231,18 @@ func Run(c *gin.Context) []error {
 
 	print.Debug("filter the orders for drop ship only (except monitors)")
 
-	filteredPay := v.filterDropShipment(pay)
+	filteredPay, upc, errc := v.filterDropShipment(pay, rdc)
+	if err = <-errc; err != nil {
+		return v.err(err)
+	}
 
 	print.Debug("arrange the orders based on time-preference grading")
 
 	arrangedPay, errs := v.arrangeOrders(filteredPay)
 	v.err(errs...)
+
+	print.Debug("copy over what's on-hand to in warehouse")
+	v.inWarehouse = v.onHand
 
 	print.Debug("convert to stateful for in-order item quantities")
 
@@ -244,7 +254,7 @@ func Run(c *gin.Context) []error {
 
 	print.Debug("email the respective orders")
 
-	taggableBans, err := v.order(sortedBans)
+	taggableBans, err := v.order(upc, sortedBans)
 	if err != nil {
 		return v.err(err)
 	}
@@ -252,6 +262,13 @@ func Run(c *gin.Context) []error {
 	print.Debug("tag the orders on ShipStation")
 
 	v.tagAndUpdate(taggableBans)
+
+	print.Debug("save config file on AWS")
+
+	errc = v.j.saveAWSChanges(upc)
+	if err = <-errc; err != nil {
+		return v.err(err)
+	}
 
 	hit = true
 
@@ -292,12 +309,13 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 }
 
 func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
-	last := time.Now().UTC().String()  // to go into AWS
-	today := time.Now().UTC().String() // to go into AWS
+	last := v.j.cfgFile.LastUTC
+	today := time.Now().UTC()
+	v.j.cfgFile.LastUTC = today
 
 	query := `orders?page=` + strconv.Itoa(page) + `
-	&createDateStart=` + last + `
-	&createDateEnd=` + today + `
+	&createDateStart=` + last.String() + `
+	&createDateEnd=` + today.String() + `
 	&pageSize=500`
 
 	resp := v.login.Get(shipURL + query)
@@ -324,21 +342,21 @@ type payload struct {
 	Pages  int
 }
 
-func (v *Vars) isMon(i item) bool {
+func (v *Vars) isMonAndVend(i item) (bool, string) {
 	for vend, set := range v.settings {
-		if !set.Monitor {
+		if !set.Monitor || !monitoring {
 			continue
 		}
 		if !v.vendExprs[vend].MatchString(i.Name) {
 			continue
 		}
-		return true
+		return true, vend
 	}
-	return false
+	return false, ""
 }
 
 // FilterDropShipment scans all items of all orders looking for drop ship candidates.
-func (v *Vars) filterDropShipment(pay *payload) filteredPayload {
+func (v *Vars) filterDropShipment(pay *payload, rdc <-chan read) (filteredPayload, <-chan updated, <-chan error) {
 
 	print.Debug("copy payload and overwrite copy's orders")
 
@@ -368,7 +386,8 @@ OrderLoop:
 		ord.Items = []item{}
 		for _, itm := range items {
 			w2 := v.hasVendor.MatchString(itm.WarehouseLocation)
-			if !w2 && !v.isMon(itm) {
+			mon, _ := v.isMonAndVend(itm)
+			if !w2 && !mon {
 				continue
 			}
 			ord.Items = append(ord.Items, itm)
@@ -381,7 +400,10 @@ OrderLoop:
 		pay.Orders = append(pay.Orders, ord)
 	}
 
-	return filteredPayload(*pay)
+	skuc, errca := v.j.updateAWS(rdc, v, ords)
+	upc, errcb := v.j.updateNewSKUs(skuc, v, ords)
+
+	return filteredPayload(*pay), upc, util.MergeErr(errca, errcb)
 }
 
 // Print prints the payload in a super minimal format.
@@ -473,24 +495,19 @@ func (v *Vars) statefulConversion(arrangedPay arrangedPayload) bananas {
 
 	for _, ord := range arrangedPay.Orders {
 		for _, itm := range ord.Items {
-			for vend, set := range v.settings {
-				if !set.Monitor || !itemVendMatch(itm, vend) || v.inWarehouse[v.skupc(itm)] != 0 {
-					continue
-				}
-
-				print.Debug("a vendor-item to be bananafied and added")
-
-				ban := banana{v.skupc(itm), 1}
-				v.addBan(bans, vend, ban)
+			mon, vend := v.isMonAndVend(itm)
+			if !mon || v.inWarehouse[v.skupc(itm)] != 0 {
+				continue
 			}
+
+			print.Debug("a vendor-item to be bananafied and added")
+
+			ban := banana{v.skupc(itm), 1}
+			v.addBan(bans, vend, ban)
 		}
 	}
 
 	return bans
-}
-
-func itemVendMatch(i item, vend string) bool {
-	return strings.Contains(i.Name, vend)
 }
 
 // Banana is a single order to be requested for a vendor.
@@ -578,25 +595,16 @@ func (b bunch) csv(name string) string {
 	return f.Name()
 }
 
-func (v *Vars) removeMonitors(bans bananas) {
-	// for vend, set := range v.settings {
-	// 	if !set.Monitor {
-	// 		continue
-	// 	}
-	// 	day := time.Now().Weekday()
-	// 	if day == time.Monday || day == time.Thursday {
-	// 		continue
-	// 	}
-	// 	delete(bans, vend)
-	// }
-}
-
 // Order sends email orders out to vendors for drop shipment product.
-func (v *Vars) order(b bananas) (taggableBananas, error) {
+func (v *Vars) order(upc <-chan updated, b bananas) (taggableBananas, error) {
 
 	print.Debug("removing monitors from emails if not M/Th")
 
-	v.removeMonitors(b)
+	bansc, errc := v.j.addMonsToBans(upc, v, b)
+	if err := <-errc; err != nil {
+		return nil, err
+	}
+	b = <-bansc
 
 	print.Debug("parse HTML template")
 
@@ -621,7 +629,7 @@ func (v *Vars) order(b bananas) (taggableBananas, error) {
 	errCh := make(chan error, 1)
 
 	for V, set := range v.settings {
-		if set.Monitor {
+		if set.Monitor && !monitoring {
 			continue
 		}
 
@@ -796,13 +804,13 @@ type item struct {
 // Grade grades the quantity requested versus what is in stock.
 func (i item) grade(v *Vars) (float64, error) {
 	skupc := v.skupc(i)
-	onHand, exists := v.inWarehouse[skupc]
+	onHand, exists := v.onHand[skupc]
 	if !exists {
 		onHand, err := v.quantities(i.WarehouseLocation)
 		if err != nil {
 			return 0, err
 		}
-		v.inWarehouse[skupc] = onHand
+		v.onHand[skupc] = onHand
 	}
 	ratio := float64(i.Quantity) / float64(onHand)
 	if ratio > 1 {

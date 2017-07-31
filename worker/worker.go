@@ -61,19 +61,20 @@ func StartWorker(c *gin.Context) error {
 		scanned += string(b)
 	}
 
-	for vend, file := range monDir {
-		for sku, mon := range file {
+	for vend, mon := range monDir {
+		for sku, monSKU := range mon.SKUs {
 			if !strings.Contains(scanned, sku) {
 				continue
 			}
-			mon.Pending = false
+			monSKU.LastUTC = time.Now().UTC()
+			monSKU.Pending = false
 
 			// overwrite on SKU for monitor file
-			file[sku] = mon
+			mon.SKUs[sku] = monSKU
 		}
 
 		// overwrite on vendor file for monitor directory
-		monDir[vend] = file
+		monDir[vend] = mon
 	}
 
 	// save changes on AWS
