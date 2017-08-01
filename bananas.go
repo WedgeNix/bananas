@@ -35,7 +35,7 @@ import (
 const (
 	// removes real world side effects to testing purposes
 	sandbox    = true
-	paperless  = false
+	paperless  = true
 	ignoreCF1  = false
 	monitoring = true
 
@@ -110,17 +110,6 @@ type Vars struct {
 	// holds onto errors that need to be handled later for damage control
 	errs []error
 }
-
-// type vendorSetting struct {
-// 	Location      string
-// 	Email         []string
-// 	PONum         string
-// 	ShareOffPrice bool
-// 	WaitingPeriod int
-// 	FileDownload  bool
-// 	UseUPC        bool
-// 	Monitor       bool
-// }
 
 func (v *Vars) err(err ...error) []error {
 	v.errs = append(v.errs, err...)
