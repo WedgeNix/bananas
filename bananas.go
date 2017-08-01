@@ -3,6 +3,7 @@ package bananas
 import (
 	"encoding/csv"
 	"errors"
+	"fmt"
 	"sort"
 	"strconv"
 	"sync"
@@ -294,24 +295,27 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 }
 
 func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
-	last := v.j.cfgFile.LastUTC
-	today := time.Now().UTC()
-	v.j.cfgFile.LastUTC = today
+	last := v.j.cfgFile.LastLA
+	today := time.Now()
 
 	query := `orders?page=` + strconv.Itoa(page) + `
-	&createDateStart=` + last.String() + `
-	&createDateEnd=` + today.String() + `
+	&createDateStart=` + last.Format("2006-01-02") + `
+	&createDateEnd=` + today.Format("2006-01-02") + `
 	&pageSize=500`
 
 	resp := v.login.Get(shipURL + query)
 	err := json.NewDecoder(resp.Body).Decode(pay)
 	defer resp.Body.Close()
 
-	reqs, err := strconv.Atoi(resp.Header.Get("X-Rate-Limit-Remaining"))
+	remaining := resp.Header.Get("X-Rate-Limit-Remaining")
+	fmt.Println(query)
+	reqs, err := strconv.Atoi(remaining)
 	if err != nil {
 		return 0, 0, err
 	}
-	secs, err := strconv.Atoi(resp.Header.Get("X-Rate-Limit-Reset"))
+	reset := resp.Header.Get("X-Rate-Limit-Reset")
+	fmt.Println(reset)
+	secs, err := strconv.Atoi(reset)
 	if err != nil {
 		return reqs, 0, err
 	}

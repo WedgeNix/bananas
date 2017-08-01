@@ -61,14 +61,15 @@ func (j *jit) readAWS() (<-chan read, <-chan error) {
 		defer close(rdc)
 		defer close(errc)
 
-		_, err := j.ac.Open(awsapi.BananasCfgFile, &j.cfgFile)
+		exists, err := j.ac.Open(awsapi.BananasCfgFile, &j.cfgFile)
 		if err != nil {
 			errc <- err
 			rdc <- false
 			return
 		}
-
-		j.cfgFile.LastUTC = time.Now().UTC()
+		if !exists {
+			j.cfgFile.LastLA = util.LANow().Add(-25 * time.Hour)
+		}
 
 		errc <- j.ac.OpenDir(awsapi.BananasMonDir, j.monDir)
 		rdc <- true
@@ -219,6 +220,8 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 				j.monDir[vend] = mon
 			}
 		}
+
+		j.cfgFile.LastLA = time.Now()
 
 		err := j.ac.Save(awsapi.BananasCfgFile, j.cfgFile)
 		if err != nil {
