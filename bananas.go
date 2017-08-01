@@ -17,7 +17,6 @@ import (
 
 	"github.com/WedgeNix/util"
 	"github.com/WedgeNix/warehouse-settings"
-	"github.com/gin-gonic/gin"
 
 	"bytes"
 	"html/template"
@@ -71,8 +70,6 @@ type Monitor struct {
 
 // Vars is the bananas data structure.
 type Vars struct {
-	context *gin.Context
-
 	// settings holds all static vendor warehouse information.
 	settings app.Bananas
 
@@ -117,7 +114,7 @@ func (v *Vars) err(err ...error) []error {
 }
 
 // Run initializes all package-level variables.
-func Run(c *gin.Context) []error {
+func Run() []error {
 	var errs []error
 
 	if hit && !paperless {
@@ -194,7 +191,6 @@ func Run(c *gin.Context) []error {
 	}
 
 	v := Vars{
-		context:     c,
 		settings:    sets,
 		vendExprs:   exprs,
 		j:           &j,
