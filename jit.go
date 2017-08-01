@@ -32,7 +32,7 @@ func newJIT() (<-chan jit, <-chan error) {
 
 		j := jit{utc: time.Now().UTC()}
 
-		ac, err := awsapi.New()
+		ac, err := awsapi.New(sandbox)
 		if err != nil {
 			errc <- err
 			jc <- j
