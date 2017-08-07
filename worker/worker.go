@@ -23,7 +23,7 @@ func StartWorker(c *gin.Context) error {
 	}
 
 	var monDir dir.BananasMon
-	err = ac.OpenDir(awsapi.BananasMonDir, monDir)
+	err = ac.OpenDir(dir.BananasMonName, monDir)
 	if err != nil {
 		return err
 	}
@@ -78,7 +78,7 @@ func StartWorker(c *gin.Context) error {
 	}
 
 	// save changes on AWS
-	err = ac.SaveDir(monDir)
+	err = ac.SaveDir(dir.BananasMonName, monDir)
 	if err != nil {
 		return err
 	}
