@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,12 +20,13 @@ import (
 )
 
 type jit struct {
-	ac          *awsapi.Controller
-	sc          *skuvault.Ctr
-	monDir      dir.BananasMon
-	cfgFile     file.BananasCfg
-	utc         time.Time
-	updateLater map[string]bool
+	ac        *awsapi.Controller
+	sc        *skuvault.Ctr
+	monDir    dir.BananasMon
+	cfgFile   file.BananasCfg
+	utc       time.Time
+	soldToday map[string]bool
+	bans      bananas
 }
 
 // create a new just-in-time handler
@@ -38,7 +40,7 @@ func newJIT() (<-chan jit, <-chan error) {
 
 		j := jit{utc: time.Now().UTC(), monDir: dir.BananasMon{}}
 
-		ac, err := awsapi.New(sandbox)
+		ac, err := awsapi.New()
 		if err != nil {
 			errc <- err
 			jc <- j
@@ -47,7 +49,7 @@ func newJIT() (<-chan jit, <-chan error) {
 
 		j.ac = ac
 		j.sc = skuvault.NewEnvCredSession()
-		j.updateLater = make(map[string]bool)
+		j.soldToday = make(map[string]bool)
 
 		errc <- nil
 		jc <- j
@@ -74,7 +76,7 @@ func (j *jit) readAWS() (<-chan read, <-chan error) {
 			return
 		}
 		if !exists {
-			j.cfgFile.LastLA = util.LANow().Add(-25 * time.Hour)
+			j.cfgFile.LastLA = util.LANow().Add(-24 * time.Hour)
 		}
 
 		errc <- j.ac.OpenDir(dir.BananasMonName, j.monDir)
@@ -115,6 +117,7 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 				// determine existence of vendor monitor file
 				vendMon, exists := j.monDir[vend]
 				if !exists {
+					vendMon.AvgWait = 5
 					vendMon.SKUs = types.SKUs{}
 				}
 
@@ -122,12 +125,11 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 				// the payload for populating later
 				monSKU, exists := vendMon.SKUs[itm.SKU]
 				if !exists {
-					vendMon.AvgWait = 5
 					skuc <- newSKU(itm.SKU)
 				}
 				monSKU.Sold += itm.Quantity
 
-				j.updateLater[itm.SKU] = true
+				j.soldToday[itm.SKU] = true
 
 				// overwrite the changes on both a file level and directory level
 				vendMon.SKUs[itm.SKU] = monSKU
@@ -213,6 +215,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 
 					// actually overwrite the empty monitor SKU
 					j.monDir[v.getVend(itm)] = monDir
+					break
 				}
 			}
 		}
@@ -251,19 +254,21 @@ func (j *jit) vendAvgWaitMonSKU(sku string) (string, float64, types.BananasMonSK
 	panic("skuToMonVend: can't find sku in monitor directory")
 }
 
-func (j *jit) monToSKUs() []string {
+func (j *jit) monToSKUs(poDay bool) []string {
 	skus := []string{}
 
 	for vend, mon := range j.monDir {
 		for sku, monSKU := range mon.SKUs {
 			daysOld := max(int(j.utc.Sub(monSKU.LastUTC).Hours()/24+0.5), 1)
-			_, soldToday := j.updateLater[sku]
+			print.Msg(`daysOld=` + strconv.Itoa(daysOld))
+			_, soldToday := j.soldToday[sku]
 			expired := daysOld > monSKU.ProbationPeriod
 
 			if soldToday && monSKU.Days > 0 {
 				monSKU.Days += daysOld
 			} else if soldToday {
 				monSKU.Days = 1
+				expired = false
 			}
 			monSKU.ProbationPeriod = min(8100/daysOld, 90)
 
@@ -272,6 +277,9 @@ func (j *jit) monToSKUs() []string {
 
 			if expired {
 				delete(mon.SKUs, sku)
+				continue
+			}
+			if !poDay {
 				continue
 			}
 			if monSKU.Pending {
@@ -291,7 +299,7 @@ func (j *jit) monToSKUs() []string {
 	return skus
 }
 
-func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) bananas {
+func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 
 	print.Debug("matching P.O. days with today")
 
@@ -303,16 +311,17 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) bananas {
 		}
 		poDay = true
 	}
-	if !poDay {
-		return nil
-	}
 
 	print.Msg("prepareMonMail waiting on updated channel")
 	<-updateCh
 
 	bans := bananas{}
 
-	pay := skuvault.GetInventoryByLocation{ProductSKUs: j.monToSKUs()}
+	skus := j.monToSKUs(poDay)
+	if len(skus) < 1 {
+		return
+	}
+	pay := skuvault.GetInventoryByLocation{ProductSKUs: skus}
 	resp := j.sc.Inventory.GetInventoryByLocation(&pay)
 
 	for sku, locs := range resp.Items {
@@ -338,11 +347,11 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) bananas {
 		bans[vend] = append(bans[vend], banana{sku, qt})
 	}
 
-	return bans
+	j.bans = bans
 }
 
 // orders monitor SKUs only via email
-func (j *jit) order(b bananas, v *Vars) []error {
+func (j *jit) order(v *Vars) []error {
 
 	print.Debug("parse HTML template")
 
@@ -367,7 +376,7 @@ func (j *jit) order(b bananas, v *Vars) []error {
 
 	mailerrc := make(chan error)
 
-	for vend, bun := range b {
+	for vend, bun := range j.bans {
 		vend := vend
 		bun := bun
 		emailing.Add(1)
@@ -405,7 +414,7 @@ func (j *jit) order(b bananas, v *Vars) []error {
 				attachment = bun.csv(vend)
 			}
 
-			if !paperless {
+			if !paperless || !monitoring {
 				email := buf.String()
 				attempts := 0
 				for {
@@ -420,7 +429,7 @@ func (j *jit) order(b bananas, v *Vars) []error {
 						} else {
 							print.Msg("Failed to send email! [FAILED]")
 							print.Msg(vend, " ==> ", bun)
-							delete(b, vend) // remove so it doesn't get tagged; rerun
+							delete(j.bans, vend) // remove so it doesn't get tagged; rerun
 							mailerrc <- errors.New("failed to email " + vend)
 							return
 						}
@@ -434,6 +443,16 @@ func (j *jit) order(b bananas, v *Vars) []error {
 	print.Debug("wait for goroutines to finish emailing")
 	emailing.Wait()
 	print.Msg("Emailing round-trip: ", time.Since(start))
+
+	// set all emailed bananas to pending
+	for vend, mon := range j.monDir {
+		for _, ban := range j.bans[vend] {
+			monSKU := mon.SKUs[ban.SKUPC]
+			monSKU.Pending = true
+			mon.SKUs[ban.SKUPC] = monSKU
+		}
+		j.monDir[vend] = mon
+	}
 
 	close(mailerrc)
 
@@ -458,12 +477,17 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 	go func() {
 		defer close(errc)
 
+		if !monitoring {
+			errc <- nil
+			return
+		}
+
 		if !<-upc {
 			errc <- errors.New("unable to save to AWS; SKUs not updated")
 			return
 		}
 
-		for sku := range j.updateLater {
+		for sku := range j.soldToday {
 			for vend, mon := range j.monDir {
 				monSKU, exists := mon.SKUs[sku]
 				if !exists {
@@ -472,6 +496,7 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 				monSKU.LastUTC = j.utc
 				mon.SKUs[sku] = monSKU
 				j.monDir[vend] = mon
+				break
 			}
 		}
 
@@ -521,7 +546,7 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 // for vend, mon := range j.monDir {
 // 	for sku, monSKU := range mon.SKUs {
 // daysOld := max(int(j.utc.Sub(monSKU.LastUTC).Hours()/24+0.5), 1)
-// _, soldToday := j.updateLater[sku]
+// _, soldToday := j.soldToday[sku]
 // expired := daysOld > monSKU.ProbationPeriod
 
 // if soldToday && monSKU.Days > 0 {

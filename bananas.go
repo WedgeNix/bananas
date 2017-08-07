@@ -36,7 +36,7 @@ import (
 
 const (
 	// removes real world side effects to testing purposes
-	sandbox    = true
+	sandbox    = false
 	paperless  = false
 	ignoreCF1  = false
 	monitoring = true
@@ -243,7 +243,7 @@ func Run() []error {
 		return []error{err}
 	}
 
-	// hit = true
+	hit = true
 
 	return nil
 }
@@ -281,12 +281,18 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	return pay, nil
 }
 
+// func fakeLAUTC(dotw int) (time.Time, time.Time) {
+// 	dTime := time.Duration(dotw*24) * time.Hour
+// 	print.Msg(util.LANow().Add(dTime))
+// 	return util.LANow().Add(dTime), time.Now().UTC().Add(dTime)
+// }
+
+// const theday = 0
+
 func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 	last := v.j.cfgFile.LastLA
 	today := util.LANow()
-	if !sandbox {
-		v.j.cfgFile.LastLA = today
-	}
+	v.j.cfgFile.LastLA = today
 
 	query := url.Values(map[string][]string{})
 	query.Set(`page`, strconv.Itoa(page))
@@ -389,10 +395,10 @@ OrderLoop:
 	v.rdOrdWg.Add(2)
 	skuc, errca := v.j.updateAWS(rdc, v, ords)
 	upc, errcb := v.j.updateNewSKUs(skuc, v, ords)
-	monBans := v.j.prepareMonMail(upc, v)
+	v.j.prepareMonMail(upc, v)
 
 	go func() {
-		errs := v.j.order(monBans, v)
+		errs := v.j.order(v)
 		for _, err := range errs {
 			if err == nil {
 				continue
@@ -773,7 +779,7 @@ func (v *Vars) tagAndUpdate(b taggableBananas) error {
 	}
 
 	if sandbox {
-		print.Msg("NEW_TAGGABLES: ", v.taggables)
+		// print.Msg("NEW_TAGGABLES: ", v.taggables)
 	}
 
 	return nil
