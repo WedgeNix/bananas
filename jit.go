@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"html/template"
 	"math"
-	"strconv"
 	"sync"
 	"time"
 
@@ -260,7 +259,7 @@ func (j *jit) monToSKUs(poDay bool) []string {
 	for vend, mon := range j.monDir {
 		for sku, monSKU := range mon.SKUs {
 			daysOld := max(int(j.utc.Sub(monSKU.LastUTC).Hours()/24+0.5), 1)
-			print.Msg(`daysOld=` + strconv.Itoa(daysOld))
+			// print.Msg(`daysOld=` + strconv.Itoa(daysOld))
 			_, soldToday := j.soldToday[sku]
 			expired := daysOld > monSKU.ProbationPeriod
 
@@ -282,7 +281,7 @@ func (j *jit) monToSKUs(poDay bool) []string {
 			if !poDay {
 				continue
 			}
-			if monSKU.Pending {
+			if !monSKU.Pending.IsZero() {
 				continue
 			}
 			if monSKU.ProbationPeriod < 90 {
@@ -448,7 +447,7 @@ func (j *jit) order(v *Vars) []error {
 	for vend, mon := range j.monDir {
 		for _, ban := range j.bans[vend] {
 			monSKU := mon.SKUs[ban.SKUPC]
-			monSKU.Pending = true
+			monSKU.Pending = util.LANow()
 			mon.SKUs[ban.SKUPC] = monSKU
 		}
 		j.monDir[vend] = mon
@@ -511,124 +510,6 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 
 	return errc
 }
-
-// adjusts quantity in bananas for individual SKUs based on AWS data
-// only handled on the specific PO dates
-// func (j *jit) addMonsToBans(upc <-chan updated, v *Vars, b bananas) (<-chan bananas, <-chan error) {
-// bansc := make(chan bananas)
-// errc := make(chan error, 1)
-
-// go func() {
-// 	defer close(bansc)
-// 	defer close(errc)
-
-// print.Msg("waiting on updatedc")
-
-// if !<-upc {
-// 	errc <- errors.New("unable to add monitor orders to emails; SKUs not updated")
-// 	return
-// }
-
-// print.Debug("matching P.O. days with today")
-
-// poDay := false
-// weekdayLA := util.LANow().Weekday()
-// for _, day := range j.cfgFile.PODays {
-// 	if weekdayLA != day {
-// 		continue
-// 	}
-// 	poDay = true
-// }
-
-// print.Debug("adjusting to-order quantities of all SKUs in monitors")
-
-// bans := b
-// for vend, mon := range j.monDir {
-// 	for sku, monSKU := range mon.SKUs {
-// daysOld := max(int(j.utc.Sub(monSKU.LastUTC).Hours()/24+0.5), 1)
-// _, soldToday := j.soldToday[sku]
-// expired := daysOld > monSKU.ProbationPeriod
-
-// if soldToday && monSKU.Days > 0 {
-// 	monSKU.Days += daysOld
-// } else if soldToday {
-// 	monSKU.Days = 1
-// }
-// monSKU.ProbationPeriod = min(8100/daysOld, 90)
-// // save the monitor SKU after days was changed
-// mon.SKUs[sku] = monSKU
-
-// f := float64(monSKU.Sold) / float64(monSKU.Days)
-// rp := (mon.AvgWait + float64(v.settings[vend].ReordPtAdd)) * f
-// rtrdr := math.Min(float64(monSKU.Days)/float64(j.cfgFile.OrdXDaysWorth), 1)
-
-// bun := bans[vend]
-// for i, ban := range bun {
-// 	if ban.SKUPC != sku {
-// 		continue
-// 	}
-
-// if expired {
-// 	delete(mon.SKUs, sku)
-// 	// bun = append(bun[:i], bun[i+1:]...)
-// 	continue
-// }
-
-// if !poDay {
-// 	// bun = append(bun[:i], bun[i+1:]...)
-// 	continue
-// }
-
-// if float64(v.onHand[sku]) > rp {
-// 	// bun = append(bun[:i], bun[i+1:]...)
-// 	continue
-// }
-
-// if monSKU.Pending {
-// 	// bun = append(bun[:i], bun[i+1:]...)
-// 	continue
-// }
-
-// if monSKU.ProbationPeriod < 90 {
-// 	// bun = append(bun[:i], bun[i+1:]...)
-// 	continue
-// }
-
-//
-// CONTINUE YESTERDAY'S WORK
-//
-// Pull W1 quantities from ItemLocation call from SkuVault
-//
-// Add in monitor skus to bananas that current don't exist
-// but do so in the AWS file
-//
-// Remove monitor SKUs from bananas that need to be
-//
-// Update quantities of SKUs that are changed via calculations
-// read in from the AWS monitor file already inside bananas
-//
-
-// ban.Quantity = int(float64(j.cfgFile.OrdXDaysWorth)*f*rtrdr + 0.5)
-
-// save the banana in the bunch
-// 	bun[i] = ban
-// }
-
-// save the bunch in the bananas
-// 	bans[vend] = bun
-
-// }
-
-// save the vendor monitor after monitor SKU was changed
-// 	j.monDir[vend] = mon
-// }
-
-// 	errc <- nil
-// 	bansc <- bans
-// }()
-
-// return bansc, errc
-// }
 
 func max(i, j int) int {
 	if i > j {

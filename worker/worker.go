@@ -2,6 +2,7 @@ package worker
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 
 	"time"
@@ -22,7 +23,7 @@ func StartWorker(c *gin.Context) error {
 		return err
 	}
 
-	var monDir dir.BananasMon
+	monDir := dir.BananasMon{}
 	err = ac.OpenDir(dir.BananasMonName, monDir)
 	if err != nil {
 		return err
@@ -67,7 +68,16 @@ func StartWorker(c *gin.Context) error {
 				continue
 			}
 			monSKU.LastUTC = time.Now().UTC()
-			monSKU.Pending = false
+
+			mon.OrdSKUCnt++
+			dayDiff := math.Max(util.LANow().Sub(monSKU.Pending).Hours()/24, 1)
+			if monSKU.Pending.IsZero() {
+				dayDiff = 5
+			}
+			rez := 1.0 / mon.OrdSKUCnt
+			mon.AvgWait = mon.AvgWait*(1-rez) + dayDiff*rez
+
+			monSKU.Pending = time.Time{}
 
 			// overwrite on SKU for monitor file
 			mon.SKUs[sku] = monSKU

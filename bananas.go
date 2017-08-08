@@ -156,6 +156,9 @@ func Run() []error {
 	wc := wedgenix.New()
 	sets := app.Bananas{}
 	wc.Do(&sets)
+	if len(sets) < 1 {
+		return []error{errors.New("Empty settings response")}
+	}
 
 	// printJSON(sets)
 
@@ -293,6 +296,9 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 	last := v.j.cfgFile.LastLA
 	today := util.LANow()
 	v.j.cfgFile.LastLA = today
+	if today.Sub(last).Hours()/24 < 0.75 {
+		return 0, 0, errors.New("Same day still; reset AWS config LastLA date")
+	}
 
 	query := url.Values(map[string][]string{})
 	query.Set(`page`, strconv.Itoa(page))
