@@ -4,7 +4,6 @@ import (
 	"encoding/csv"
 	"errors"
 	"fmt"
-	"log"
 	"net/url"
 	"sort"
 	"strconv"
@@ -30,7 +29,6 @@ import (
 	"encoding/json"
 
 	"github.com/WedgeNix/warehouse-settings/app"
-	"github.com/mrmiguu/print"
 	"github.com/mrmiguu/un"
 )
 
@@ -148,10 +146,7 @@ func Run() []error {
 	appUser = os.Getenv("APP_EMAIL_USER")
 	appPass = os.Getenv("APP_EMAIL_PASS")
 
-	// program-based settings
-	print.Goroutines(false)
-
-	print.Debug("grab vendor settings for bananas")
+	util.Log("grab vendor settings for bananas")
 
 	wc := wedgenix.New()
 	sets := app.Bananas{}
@@ -173,7 +168,7 @@ func Run() []error {
 		return []error{err}
 	}
 
-	print.Debug("reading from AWS")
+	util.Log("reading from AWS")
 
 	j := <-jc
 	rdc, errc := j.readAWS()
@@ -197,7 +192,7 @@ func Run() []error {
 		errs:        []error{},
 	}
 
-	print.Debug("get orders that are awaiting shipment")
+	util.Log("get orders that are awaiting shipment")
 
 	pay, err := v.getOrdersAwaitingShipment()
 	if err != nil {
@@ -205,41 +200,41 @@ func Run() []error {
 	}
 	v.original = pay.preserveItems()
 
-	print.Debug("filter the orders for drop ship only (except monitors)")
+	util.Log("filter the orders for drop ship only (except monitors)")
 
 	filteredPay, upc, errc := v.filterDropShipment(pay, rdc)
 	if err = <-errc; err != nil {
 		return v.err(err)
 	}
 
-	print.Debug("arrange the orders based on time-preference grading")
+	util.Log("arrange the orders based on time-preference grading")
 
 	arrangedPay, errs := v.arrangeOrders(filteredPay)
 	v.err(errs...)
 
-	print.Debug("convert to stateful for in-order item quantities")
+	util.Log("convert to stateful for in-order item quantities")
 
 	bans, err := v.statefulConversion(arrangedPay)
 	if err != nil {
 		return []error{err}
 	}
 
-	print.Debug("place higher needed quantities on top for emails")
+	util.Log("place higher needed quantities on top for emails")
 
 	sortedBans := bans.sort().print()
 
-	print.Debug("email the respective orders")
+	util.Log("email the respective orders")
 
 	taggableBans, errs := v.order(sortedBans)
 	if err != nil {
 		return errs
 	}
 
-	print.Debug("tag the orders on ShipStation")
+	util.Log("tag the orders on ShipStation")
 
 	v.tagAndUpdate(taggableBans)
 
-	print.Debug("save config file on AWS")
+	util.Log("save config file on AWS")
 
 	errc = v.j.saveAWSChanges(upc)
 	if err = <-errc; err != nil {
@@ -252,7 +247,7 @@ func Run() []error {
 }
 
 func printJSON(v interface{}) {
-	print.Msg(string(un.Bytes(json.MarshalIndent(v, "", "    "))))
+	util.Log(string(un.Bytes(json.MarshalIndent(v, "", "    "))))
 }
 
 // GetOrdersAwaitingShipment grabs an HTTP response of orders, filtering in those awaiting shipment.
@@ -286,7 +281,7 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 
 // func fakeLAUTC(dotw int) (time.Time, time.Time) {
 // 	dTime := time.Duration(dotw*24) * time.Hour
-// 	print.Msg(util.LANow().Add(dTime))
+// 	util.Log(util.LANow().Add(dTime))
 // 	return util.LANow().Add(dTime), time.Now().UTC().Add(dTime)
 // }
 
@@ -296,6 +291,7 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 	last := v.j.cfgFile.LastLA
 	today := util.LANow()
 	v.j.cfgFile.LastLA = today
+	// 3/4ths of a day to give wiggle room for Matt's timing
 	if today.Sub(last).Hours()/24 < 0.75 {
 		return 0, 0, errors.New("Same day still; reset AWS config LastLA date")
 	}
@@ -352,16 +348,16 @@ func (v *Vars) isMonAndVend(i item) (bool, string) {
 // FilterDropShipment scans all items of all orders looking for drop ship candidates.
 func (v *Vars) filterDropShipment(pay *payload, rdc <-chan read) (filteredPayload, <-chan updated, <-chan error) {
 
-	print.Debug("copy payload and overwrite copy's orders")
+	util.Log("copy payload and overwrite copy's orders")
 
 	ords := pay.Orders
 
 	if lO := len(pay.Orders); lO > 0 {
-		print.Msg("Pre-filter order count: ", lO)
+		util.Log("Pre-filter order count: ", lO)
 	}
 	pay.Orders = []order{}
 
-	print.Debug("go through all orders")
+	util.Log("go through all orders")
 
 OrderLoop:
 	for _, ord := range ords {
@@ -376,7 +372,7 @@ OrderLoop:
 		// 	}
 
 		if strings.ContainsAny(ord.AdvancedOptions.CustomField1, "Vv") && !(sandbox && ignoreCF1) {
-			// print.Msg("next order... [cf1] => ", ord.AdvancedOptions.CustomField1)
+			// util.Log("next order... [cf1] => ", ord.AdvancedOptions.CustomField1)
 			continue OrderLoop
 		}
 
@@ -409,12 +405,12 @@ OrderLoop:
 			if err == nil {
 				continue
 			}
-			log.Println(err)
+			util.Log(err)
 		}
 	}()
 
 	v.rdOrdWg.Wait()
-	print.Msg(`len(pay.Orders)=`, len(pay.Orders))
+	util.Log(`len(pay.Orders)=`, len(pay.Orders))
 	dsOrds := []order{}
 	for _, ord := range pay.Orders {
 		if ord.OrderStatus != "awaiting_shipment" {
@@ -424,7 +420,7 @@ OrderLoop:
 	}
 
 	if len(pay.Orders) < 1 {
-		print.Msg("No orders found after 'filtering'")
+		util.Log("No orders found after 'filtering'")
 	}
 	newFiltPay := filteredPayload(payload{Orders: dsOrds})
 	return newFiltPay, upc, util.MergeErr(errca, errcb)
@@ -443,7 +439,7 @@ func (v *Vars) print(p payload) error {
 				return err
 			}
 			// fmt.Printf("%d/%d ~ %d/%d : %dx : %v | %s; %s\n", oi+1, cap(p.Orders), ii+1, cap(o.Items), i.Quantity, o.grade(v), v.skupc(i), i.WarehouseLocation)
-			print.Msg(
+			util.Log(
 				oi+1, "/", cap(p.Orders),
 				" ~ ",
 				ii+1, "/", cap(o.Items),
@@ -488,7 +484,7 @@ func (v *Vars) statefulConversion(a arrangedPayload) (bananas, error) {
 	bans := bananas{}
 	innerBroke := []order{}
 
-	print.Debug("run over all orders/items")
+	util.Log("run over all orders/items")
 
 	for _, o := range a.Orders {
 		var savedO *order
@@ -511,7 +507,7 @@ func (v *Vars) statefulConversion(a arrangedPayload) (bananas, error) {
 		}
 	}
 
-	print.Debug("hybrid orders that broke during stateful conversion")
+	util.Log("hybrid orders that broke during stateful conversion")
 
 	for _, o := range innerBroke {
 		for _, i := range o.Items {
@@ -578,12 +574,12 @@ func (v *Vars) addBan(bans bananas, vend string, ban banana) {
 // Print prints the hierarchy of the banana bunch.
 func (b bananas) print() bananas {
 	for k, v := range b {
-		print.Msg(k, ":")
+		util.Log(k, ":")
 		for ik, iv := range v {
-			print.Msg("\t", ik, ": ", iv)
+			util.Log("\t", ik, ": ", iv)
 		}
 	}
-	print.Msg()
+	util.Log()
 	return b
 }
 
@@ -600,7 +596,7 @@ func (b bananas) sort() bananas {
 // CSV writes a bunch of bananas into a comma-separated file, returning the name.
 func (b bunch) csv(name string) string {
 
-	print.Debug("create .csv for email attachment")
+	util.Log("create .csv for email attachment")
 
 	var f os.File
 	un.Known(os.Create(name + ".csv")).T(&f)
@@ -620,7 +616,7 @@ func (b bunch) csv(name string) string {
 // Order sends email orders out to vendors for drop shipment product.
 func (v *Vars) order(b bananas) (taggableBananas, []error) {
 
-	print.Debug("removing monitors from drop ship emails")
+	util.Log("removing monitors from drop ship emails")
 
 	for vend, set := range v.settings {
 		if !set.Monitor {
@@ -629,7 +625,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 		delete(b, vend)
 	}
 
-	print.Debug("parse HTML template")
+	util.Log("parse HTML template")
 
 	tmpl, err := template.ParseFiles("vendor-email-tmpl.html")
 	if err != nil {
@@ -660,17 +656,17 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 		B, exists := b[V]
 		if !exists {
 
-			print.Debug("send empty email")
+			util.Log("send empty email")
 
 		}
 		vendor, bunch := V, B // new "variables" for closure
 
 		emailing.Add(1)
 		go func() {
-			defer print.Debug("goroutine is finished emailing an email")
+			defer util.Log("goroutine is finished emailing an email")
 			defer emailing.Done()
 
-			print.Debug("goroutine is starting to email a drop ship vendor")
+			util.Log("goroutine is starting to email a drop ship vendor")
 
 			t := util.LANow()
 			po := v.settings[vendor].PONum + "-" + t.Format("20060102")
@@ -685,7 +681,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 			buf := &bytes.Buffer{}
 			err := tmpl.Execute(buf, inj)
 			if err != nil {
-				print.Msg(vendor, " ==> ", bunch)
+				util.Log(vendor, " ==> ", bunch)
 				mailerrc <- err
 				return
 			}
@@ -708,13 +704,13 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 					attempts++
 					if err != nil {
 						if attempts <= 3 {
-							print.Msg("Failed to send email. [retrying]")
+							util.Log("Failed to send email. [retrying]")
 							t := time.Duration(3 * attempts)
 							time.Sleep(t * time.Second)
 							continue
 						} else {
-							print.Msg("Failed to send email! [FAILED]")
-							print.Msg(vendor, " ==> ", bunch)
+							util.Log("Failed to send email! [FAILED]")
+							util.Log(vendor, " ==> ", bunch)
 							delete(b, vendor) // remove so it doesn't get tagged; rerun
 							mailerrc <- errors.New("failed to email " + vendor)
 							return
@@ -726,9 +722,9 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 		}()
 	}
 
-	print.Debug("wait for goroutines to finish emailing")
+	util.Log("wait for goroutines to finish emailing")
 	emailing.Wait()
-	print.Msg("Emailing round-trip: ", time.Since(start))
+	util.Log("Emailing round-trip: ", time.Since(start))
 
 	close(mailerrc)
 
@@ -748,7 +744,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 
 // TagAndUpdate tags all banana orders.
 func (v *Vars) tagAndUpdate(b taggableBananas) error {
-	print.Msg("TAGGABLE_COUNT: ", len(v.taggables))
+	util.Log("TAGGABLE_COUNT: ", len(v.taggables))
 
 	for _, origOrd := range v.original {
 		for i, tagOrd := range v.taggables {
@@ -781,11 +777,11 @@ func (v *Vars) tagAndUpdate(b taggableBananas) error {
 		if err != nil {
 			return err
 		}
-		print.Msg("CREATEORDERS_RESP: ", string(b))
+		util.Log("CREATEORDERS_RESP: ", string(b))
 	}
 
 	if sandbox {
-		// print.Msg("NEW_TAGGABLES: ", v.taggables)
+		// util.Log("NEW_TAGGABLES: ", v.taggables)
 	}
 
 	return nil
