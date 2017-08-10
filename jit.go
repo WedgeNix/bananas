@@ -129,6 +129,7 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 				// the payload for populating later
 				monSKU, exists := vendMon.SKUs[itm.SKU]
 				if !exists {
+					util.Log(`'` + itm.SKU + `' found!`)
 					skuc <- newSKU(itm.SKU)
 				}
 				monSKU.Sold += itm.Quantity
@@ -274,7 +275,9 @@ func (j *jit) monToSKUs(poDay bool) []string {
 				monSKU.Days = 1
 				expired = false
 			}
-			monSKU.ProbationPeriod = min(8100/daysOld, 90)
+			if soldToday {
+				monSKU.ProbationPeriod = min(8100/daysOld, 90)
+			}
 
 			// save the monitor SKU after days was changed
 			mon.SKUs[sku] = monSKU
