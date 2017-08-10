@@ -191,7 +191,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 				continue
 			}
 			if !ok {
-				err = errors.New("SkuVault errors not converted correctly")
+				err = errors.New("skuVault errors not converted correctly")
 			}
 			fmt.Println("updateNewSKUs done")
 			v.rdOrdWg.Done()
@@ -481,6 +481,11 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 	go func() {
 		defer close(errc)
 
+		err := j.ac.SaveFile(util.GetLogFile())
+		if err != nil {
+			errc <- errors.New("could not save log to AWS")
+		}
+
 		if !monitoring {
 			errc <- nil
 			return
@@ -504,7 +509,7 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 			}
 		}
 
-		err := j.ac.Save(file.BananasCfgName, j.cfgFile)
+		err = j.ac.Save(file.BananasCfgName, j.cfgFile)
 		if err != nil {
 			errc <- err
 			return

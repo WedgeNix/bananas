@@ -152,7 +152,7 @@ func Run() []error {
 	sets := app.Bananas{}
 	wc.Do(&sets)
 	if len(sets) < 1 {
-		return []error{errors.New("Empty settings response")}
+		return []error{errors.New("empty settings response")}
 	}
 
 	// printJSON(sets)
@@ -293,7 +293,7 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 	v.j.cfgFile.LastLA = today
 	// 3/4ths of a day to give wiggle room for Matt's timing
 	if today.Sub(last).Hours()/24 < 0.75 {
-		return 0, 0, errors.New("Same day still; reset AWS config LastLA date")
+		return 0, 0, errors.New("same day still; reset AWS config LastLA date")
 	}
 
 	query := url.Values(map[string][]string{})
@@ -993,7 +993,7 @@ func (v *Vars) toVendor(itemName string) (string, error) {
 		}
 		return vend, nil
 	}
-	return "", errors.New("Vendor not found in '" + itemName + "'")
+	return "", errors.New("vendor not found in '" + itemName + "'")
 }
 
 // quantities scans one type of warehouse in a location and sums its quantities.
