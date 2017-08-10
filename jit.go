@@ -15,7 +15,6 @@ import (
 	"github.com/WedgeNix/awsapi/file"
 	"github.com/WedgeNix/awsapi/types"
 	"github.com/WedgeNix/util"
-	"github.com/mrmiguu/print"
 )
 
 type jit struct {
@@ -78,7 +77,13 @@ func (j *jit) readAWS() (<-chan read, <-chan error) {
 			j.cfgFile.LastLA = util.LANow().Add(-24 * time.Hour)
 		}
 
-		errc <- j.ac.OpenDir(dir.BananasMonName, j.monDir)
+		err = j.ac.OpenDir(dir.BananasMonName, j.monDir)
+		if err != nil {
+			errc <- err
+			rdc <- false
+			return
+		}
+		errc <- nil
 		rdc <- true
 	}()
 
@@ -97,7 +102,7 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 		defer close(skuc)
 		defer close(errc)
 
-		// print.Msg("waiting on read channel")
+		// util.Log("waiting on read channel")
 		if !<-rdc {
 			errc <- errors.New("unable to update in-memory monitor SKUs; not opened first")
 			fmt.Println("updateAWS done")
@@ -157,7 +162,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 			PageSize: 10000,
 		}
 
-		print.Debug("absorbing new SKUs into AWS")
+		util.Log("absorbing new SKUs into AWS")
 
 		// fill up non-repeating SKUs into payload's product SKU list
 		for sku := range skuc {
@@ -166,7 +171,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 
 		if len(pay.ProductSKUs) < 1 {
 
-			print.Debug("No new SKUs to populate the monitor file")
+			util.Log("No new SKUs to populate the monitor file")
 
 			v.rdOrdWg.Done()
 			fmt.Println("updateNewSKUs done")
@@ -176,7 +181,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 			}
 		}
 
-		print.Debug("grabbing SkuVault product information")
+		util.Log("grabbing SkuVault product information")
 
 		// these are all brand new entries on the AWS database
 		resp := j.sc.Products.GetProducts(&pay)
@@ -195,7 +200,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 			return
 		}
 
-		print.Debug("updating SKU creation dates")
+		util.Log("updating SKU creation dates")
 
 		// update all monitor SKUs from response products
 		for _, prod := range resp.Products {
@@ -259,7 +264,7 @@ func (j *jit) monToSKUs(poDay bool) []string {
 	for vend, mon := range j.monDir {
 		for sku, monSKU := range mon.SKUs {
 			daysOld := max(int(j.utc.Sub(monSKU.LastUTC).Hours()/24+0.5), 1)
-			// print.Msg(`daysOld=` + strconv.Itoa(daysOld))
+			// util.Log(`daysOld=` + strconv.Itoa(daysOld))
 			_, soldToday := j.soldToday[sku]
 			expired := daysOld > monSKU.ProbationPeriod
 
@@ -300,7 +305,7 @@ func (j *jit) monToSKUs(poDay bool) []string {
 
 func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 
-	print.Debug("matching P.O. days with today")
+	util.Log("matching P.O. days with today")
 
 	poDay := false
 	weekdayLA := util.LANow().Weekday()
@@ -311,7 +316,7 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 		poDay = true
 	}
 
-	print.Msg("prepareMonMail waiting on updated channel")
+	util.Log("prepareMonMail waiting on updated channel")
 	<-updateCh
 
 	bans := bananas{}
@@ -352,7 +357,7 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 // orders monitor SKUs only via email
 func (j *jit) order(v *Vars) []error {
 
-	print.Debug("parse HTML template")
+	util.Log("parse HTML template")
 
 	tmpl, err := template.ParseFiles("vendor-email-tmpl.html")
 	if err != nil {
@@ -380,10 +385,10 @@ func (j *jit) order(v *Vars) []error {
 		bun := bun
 		emailing.Add(1)
 		go func() {
-			defer print.Debug("goroutine is finished emailing an email")
+			defer util.Log("goroutine is finished emailing an email")
 			defer emailing.Done()
 
-			print.Debug("goroutine is starting to email a just-in-time vendor")
+			util.Log("goroutine is starting to email a just-in-time vendor")
 
 			t := util.LANow()
 			po := v.settings[vend].PONum + "-" + t.Format("20060102")
@@ -398,7 +403,7 @@ func (j *jit) order(v *Vars) []error {
 			buf := &bytes.Buffer{}
 			err := tmpl.Execute(buf, inj)
 			if err != nil {
-				print.Msg(vend, " ==> ", bun)
+				util.Log(vend, " ==> ", bun)
 				mailerrc <- err
 				return
 			}
@@ -421,13 +426,13 @@ func (j *jit) order(v *Vars) []error {
 					attempts++
 					if err != nil {
 						if attempts <= 3 {
-							print.Msg("Failed to send email. [retrying]")
+							util.Log("Failed to send email. [retrying]")
 							t := time.Duration(3 * attempts)
 							time.Sleep(t * time.Second)
 							continue
 						} else {
-							print.Msg("Failed to send email! [FAILED]")
-							print.Msg(vend, " ==> ", bun)
+							util.Log("Failed to send email! [FAILED]")
+							util.Log(vend, " ==> ", bun)
 							delete(j.bans, vend) // remove so it doesn't get tagged; rerun
 							mailerrc <- errors.New("failed to email " + vend)
 							return
@@ -439,9 +444,9 @@ func (j *jit) order(v *Vars) []error {
 		}()
 	}
 
-	print.Debug("wait for goroutines to finish emailing")
+	util.Log("wait for goroutines to finish emailing")
 	emailing.Wait()
-	print.Msg("Emailing round-trip: ", time.Since(start))
+	util.Log("Emailing round-trip: ", time.Since(start))
 
 	// set all emailed bananas to pending
 	for vend, mon := range j.monDir {
