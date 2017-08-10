@@ -484,9 +484,9 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 	go func() {
 		defer close(errc)
 
-		err := j.ac.SaveFile(util.GetLogFile())
+		err := j.ac.SaveFile("hit-the-bananas/logs/", util.GetLogFile())
 		if err != nil {
-			errc <- errors.New("could not save log to AWS")
+			errc <- err
 		}
 
 		if !monitoring {
