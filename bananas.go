@@ -34,8 +34,8 @@ import (
 
 const (
 	// removes real world side effects to testing purposes
-	sandbox    = true
-	paperless  = true
+	sandbox    = false
+	paperless  = false
 	ignoreCF1  = false
 	monitoring = true
 
@@ -254,6 +254,8 @@ func printJSON(v interface{}) {
 func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	pg := 1
 
+	util.Log(`Bananas hit @`, util.LANow())
+
 	pay := &payload{}
 	reqs, secs, err := v.getPage(pg, pay)
 	if err != nil {
@@ -291,6 +293,10 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 	last := v.j.cfgFile.LastLA
 	today := util.LANow()
 	v.j.cfgFile.LastLA = today
+
+	util.Log(`last=`, last)
+	util.Log(`today=`, today)
+
 	// 3/4ths of a day to give wiggle room for Matt's timing
 	if today.Sub(last).Hours()/24 < 0.75 {
 		return 0, 0, errors.New("same day still; reset AWS config LastLA date")
@@ -393,7 +399,7 @@ OrderLoop:
 
 		pay.Orders = append(pay.Orders, ord)
 	}
-
+	util.Log(`len(ords)=`, len(ords))
 	v.rdOrdWg.Add(2)
 	skuc, errca := v.j.updateAWS(rdc, v, ords)
 	upc, errcb := v.j.updateNewSKUs(skuc, v, ords)
