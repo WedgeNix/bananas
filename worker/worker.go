@@ -40,7 +40,7 @@ func StartWorker(c *gin.Context) error {
 		WarehouseID:        34,
 		TransactionType:    "Add",
 		TransactionReasons: []string{"receiving"},
-		FromDate:           util.LANow().Add(-25 * time.Hour),
+		FromDate:           util.LANow().Add(-26 * time.Hour),
 		ToDate:             util.LANow(),
 		PageNumber:         1,
 	}
