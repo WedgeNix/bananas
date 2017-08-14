@@ -216,8 +216,13 @@ func Run() []error {
 
 	bans, err := v.statefulConversion(arrangedPay)
 	if err != nil {
-		return []error{err}
+		return v.err(err)
 	}
+
+	//
+	// Honestly stateful stuff (real world)
+	// ||||||||
+	// vvvvvvvv
 
 	util.Log("place higher needed quantities on top for emails")
 
@@ -226,24 +231,23 @@ func Run() []error {
 	util.Log("email the respective orders")
 
 	taggableBans, errs := v.order(sortedBans)
-	if err != nil {
-		return errs
-	}
+	v.err(errs...)
 
 	util.Log("tag the orders on ShipStation")
 
-	v.tagAndUpdate(taggableBans)
+	err = v.tagAndUpdate(taggableBans)
+	v.err(err)
 
 	util.Log("save config file on AWS")
 
 	errc = v.j.saveAWSChanges(upc)
 	if err = <-errc; err != nil {
-		return []error{err}
+		return v.err(err)
 	}
 
 	hit = true
 
-	return nil
+	return v.errs
 }
 
 func printJSON(v interface{}) {
@@ -308,11 +312,17 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 	query.Set(`createDateEnd`, today.Format("2006-01-02 15:04:05"))
 	query.Set(`pageSize`, `500`)
 
-	resp := v.login.Get(shipURL + `orders?` + query.Encode())
+	resp, err := v.login.Get(shipURL + `orders?` + query.Encode())
+	if err != nil {
+		return 0, 0, err
+	}
 	fmt.Println(shipURL + `orders?` + query.Encode())
 	fmt.Println(resp.Status)
 
-	err := json.NewDecoder(resp.Body).Decode(pay)
+	err = json.NewDecoder(resp.Body).Decode(pay)
+	if err != nil {
+		return 0, 0, err
+	}
 	defer resp.Body.Close()
 	// fmt.Println(*pay)
 
@@ -778,7 +788,10 @@ func (v *Vars) tagAndUpdate(b taggableBananas) error {
 	}
 
 	if len(v.taggables) > 0 && !sandbox {
-		resp := v.login.Post(shipURL+`orders/createorders`, v.taggables)
+		resp, err := v.login.Post(shipURL+`orders/createorders`, v.taggables)
+		if err != nil {
+			return err
+		}
 		b, err := ioutil.ReadAll(resp.Body)
 		if err != nil {
 			return err
