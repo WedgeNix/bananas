@@ -133,7 +133,7 @@ func (p *payload) preserveItems() []order {
 // Run initializes all package-level variables.
 func Run() []error {
 	if hit && !paperless {
-		return []error{errors.New("bananas already hit; we don't want to re-email everyone")}
+		return []error{util.NewErr("bananas already hit; we don't want to re-email everyone")}
 	}
 
 	// pull environmental variables
@@ -152,7 +152,7 @@ func Run() []error {
 	sets := app.Bananas{}
 	wc.Do(&sets)
 	if len(sets) < 1 {
-		return []error{errors.New("empty settings response")}
+		return []error{util.NewErr("empty settings response")}
 	}
 
 	// printJSON(sets)
@@ -165,7 +165,7 @@ func Run() []error {
 
 	jc, errc := newJIT()
 	if err := <-errc; err != nil {
-		return []error{err}
+		return []error{util.Err(err)}
 	}
 
 	util.Log("reading from AWS")
@@ -173,7 +173,7 @@ func Run() []error {
 	j := <-jc
 	rdc, errc := j.readAWS()
 	if err := <-errc; err != nil {
-		return []error{err}
+		return []error{util.Err(err)}
 	}
 
 	v := Vars{
@@ -263,7 +263,7 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	pay := &payload{}
 	reqs, secs, err := v.getPage(pg, pay)
 	if err != nil {
-		return pay, err
+		return pay, util.Err(err)
 	}
 
 	for pay.Page < pay.Pages {
@@ -273,7 +273,7 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 		pay = &payload{}
 		reqs, secs, err = v.getPage(pg, pay)
 		if err != nil {
-			return pay, err
+			return pay, util.Err(err)
 		}
 		if reqs < 1 {
 			time.Sleep(time.Duration(secs) * time.Second)
@@ -303,7 +303,7 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 
 	// 3/4ths of a day to give wiggle room for Matt's timing
 	if today.Sub(last).Hours()/24 < 0.75 {
-		return 0, 0, errors.New("same day still; reset AWS config LastLA date")
+		return 0, 0, util.NewErr("same day still; reset AWS config LastLA date")
 	}
 
 	query := url.Values(map[string][]string{})
@@ -314,14 +314,14 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 
 	resp, err := v.login.Get(shipURL + `orders?` + query.Encode())
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, util.Err(err)
 	}
 	fmt.Println(shipURL + `orders?` + query.Encode())
 	fmt.Println(resp.Status)
 
 	err = json.NewDecoder(resp.Body).Decode(pay)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, util.Err(err)
 	}
 	defer resp.Body.Close()
 	// fmt.Println(*pay)
@@ -329,15 +329,15 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 	remaining := resp.Header.Get("X-Rate-Limit-Remaining")
 	reqs, err := strconv.Atoi(remaining)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, util.Err(err)
 	}
 	reset := resp.Header.Get("X-Rate-Limit-Reset")
 	secs, err := strconv.Atoi(reset)
 	if err != nil {
-		return reqs, 0, err
+		return reqs, 0, util.Err(err)
 	}
 
-	return reqs, secs, err
+	return reqs, secs, util.Err(err)
 }
 
 // Payload is the first level of a ShipStation HTTP response body.
@@ -507,7 +507,7 @@ func (v *Vars) statefulConversion(a arrangedPayload) (bananas, error) {
 		for _, i := range o.Items {
 			skupc, err := v.skupc(i)
 			if err != nil {
-				return nil, err
+				return nil, util.Err(err)
 			}
 			if v.broken[o.OrderID] {
 				v.add(bans, &i)
@@ -645,7 +645,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 
 	tmpl, err := template.ParseFiles("vendor-email-tmpl.html")
 	if err != nil {
-		return nil, []error{err}
+		return nil, []error{util.Err(err)}
 	}
 
 	login := util.EmailLogin{
@@ -848,13 +848,13 @@ type item struct {
 func (i item) grade(v *Vars) (float64, error) {
 	skupc, err := v.skupc(i)
 	if err != nil {
-		return 0, err
+		return 0, util.Err(err)
 	}
 	onHand, exists := v.inWarehouse[skupc]
 	if !exists {
 		onHand, err = v.quantities(i.WarehouseLocation)
 		if err != nil {
-			return 0, err
+			return 0, util.Err(err)
 		}
 		v.inWarehouse[skupc] = onHand
 	}
@@ -886,7 +886,7 @@ func (v *Vars) getVend(i item) string {
 func (v *Vars) skupc(i item) (string, error) {
 	vend, err := v.toVendor(i.Name)
 	if err != nil {
-		return "", err
+		return "", util.Err(err)
 	}
 	if !v.settings[vend].UseUPC {
 		return i.SKU, nil
@@ -896,7 +896,7 @@ func (v *Vars) skupc(i item) (string, error) {
 
 func (v *Vars) poNum(i *item, t time.Time) (string, error) {
 	vend, err := v.toVendor(i.Name)
-	return util.S(v.settings[vend].PONum, "-", t.Format("20060102")), err
+	return util.S(v.settings[vend].PONum, "-", t.Format("20060102")), util.Err(err)
 }
 
 // Order is the second level of a ShipStation HTTP response body.
@@ -949,7 +949,7 @@ func (o order) grade(v *Vars) (float64, error) {
 	for _, i := range o.Items {
 		abcdf, err := i.grade(v)
 		if err != nil {
-			return 0, err
+			return 0, util.Err(err)
 		}
 		ratios += abcdf
 	}
@@ -1012,7 +1012,7 @@ func (v *Vars) toVendor(itemName string) (string, error) {
 		}
 		return vend, nil
 	}
-	return "", errors.New("vendor not found in '" + itemName + "'")
+	return "", util.NewErr("vendor not found in '" + itemName + "'")
 }
 
 // quantities scans one type of warehouse in a location and sums its quantities.
@@ -1024,7 +1024,7 @@ func (v *Vars) quantities(s string) (int, error) {
 		for _, quan := range quans {
 			val, err := strconv.Atoi(v.number.FindString(quan))
 			if err != nil {
-				return sum, err
+				return sum, util.Err(err)
 			}
 			sum += val
 		}

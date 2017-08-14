@@ -40,7 +40,7 @@ func newJIT() (<-chan jit, <-chan error) {
 
 		ac, err := awsapi.New()
 		if err != nil {
-			errc <- err
+			errc <- util.Err(err)
 			jc <- j
 			return
 		}
@@ -69,7 +69,7 @@ func (j *jit) readAWS() (<-chan read, <-chan error) {
 
 		exists, err := j.ac.Open(file.BananasCfgName, &j.cfgFile)
 		if err != nil {
-			errc <- err
+			errc <- util.Err(err)
 			rdc <- false
 			return
 		}
@@ -79,7 +79,7 @@ func (j *jit) readAWS() (<-chan read, <-chan error) {
 
 		err = j.ac.OpenDir(dir.BananasMonName, j.monDir)
 		if err != nil {
-			errc <- err
+			errc <- util.Err(err)
 			rdc <- false
 			return
 		}
@@ -102,9 +102,9 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 		defer close(skuc)
 		defer close(errc)
 
-		// util.Log("waiting on read channel")
+		// util.Err("waiting on read channel")
 		if !<-rdc {
-			errc <- errors.New("unable to update in-memory monitor SKUs; not opened first")
+			errc <- util.NewErr("unable to update in-memory monitor SKUs; not opened first")
 			fmt.Println("updateAWS done")
 			return
 		}
@@ -196,7 +196,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 			}
 			fmt.Println("updateNewSKUs done")
 			v.rdOrdWg.Done()
-			errc <- err
+			errc <- util.Err(err)
 			upc <- false
 			return
 		}
@@ -265,7 +265,7 @@ func (j *jit) monToSKUs(poDay bool) []string {
 	for vend, mon := range j.monDir {
 		for sku, monSKU := range mon.SKUs {
 			daysOld := max(int(j.utc.Sub(monSKU.LastUTC).Hours()/24+0.5), 1)
-			// util.Log(`daysOld=` + strconv.Itoa(daysOld))
+			// util.Err(`daysOld=` + strconv.Itoa(daysOld))
 			_, soldToday := j.soldToday[sku]
 			expired := daysOld > monSKU.ProbationPeriod
 
@@ -364,7 +364,7 @@ func (j *jit) order(v *Vars) []error {
 
 	tmpl, err := template.ParseFiles("vendor-email-tmpl.html")
 	if err != nil {
-		return []error{err}
+		return []error{util.Err(err)}
 	}
 
 	login := util.EmailLogin{
@@ -407,7 +407,7 @@ func (j *jit) order(v *Vars) []error {
 			err := tmpl.Execute(buf, inj)
 			if err != nil {
 				util.Log(vend, " ==> ", bun)
-				mailerrc <- err
+				mailerrc <- util.Err(err)
 				return
 			}
 
@@ -437,7 +437,7 @@ func (j *jit) order(v *Vars) []error {
 							util.Log("Failed to send email! [FAILED]")
 							util.Log(vend, " ==> ", bun)
 							delete(j.bans, vend) // remove so it doesn't get tagged; rerun
-							mailerrc <- errors.New("failed to email " + vend)
+							mailerrc <- util.NewErr("failed to email " + vend)
 							return
 						}
 					}
@@ -486,7 +486,7 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 
 		err := j.ac.SaveFile("hit-the-bananas/logs/", util.GetLogFile())
 		if err != nil {
-			errc <- err
+			errc <- util.Err(err)
 		}
 
 		if !monitoring {
@@ -495,7 +495,7 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 		}
 
 		if !<-upc {
-			errc <- errors.New("unable to save to AWS; SKUs not updated")
+			errc <- util.NewErr("unable to save to AWS; SKUs not updated")
 			return
 		}
 
@@ -514,7 +514,7 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 
 		err = j.ac.Save(file.BananasCfgName, j.cfgFile)
 		if err != nil {
-			errc <- err
+			errc <- util.Err(err)
 			return
 		}
 
