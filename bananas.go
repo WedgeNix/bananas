@@ -35,7 +35,7 @@ import (
 const (
 	// removes real world side effects to testing purposes
 	sandbox    = false
-	paperless  = false
+	paperless  = true
 	ignoreCF1  = false
 	monitoring = true
 
