@@ -337,7 +337,7 @@ func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
 		return reqs, 0, util.Err(err)
 	}
 
-	return reqs, secs, util.Err(err)
+	return reqs, secs, nil
 }
 
 // Payload is the first level of a ShipStation HTTP response body.
