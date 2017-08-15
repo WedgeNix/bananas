@@ -512,7 +512,7 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 			}
 		}
 
-		err = j.ac.Save(file.BananasCfgName, j.cfgFile)
+		err := j.ac.Save(file.BananasCfgName, j.cfgFile)
 		if err != nil {
 			errc <- util.Err(err)
 			return
