@@ -484,10 +484,10 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 	go func() {
 		defer close(errc)
 
-		err := j.ac.SaveFile("hit-the-bananas/logs/", util.GetLogFile())
-		if err != nil {
-			errc <- util.Err(err)
-		}
+		// err := j.ac.SaveFile("hit-the-bananas/logs/", util.GetLogFile())
+		// if err != nil {
+		// 	errc <- util.Err(err)
+		// }
 
 		if !monitoring {
 			errc <- nil
