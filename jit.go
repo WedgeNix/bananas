@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	emailUsJITOnly = true
+	emailUsJITOnly = false
 )
 
 type jit struct {
