@@ -17,6 +17,10 @@ import (
 	"github.com/WedgeNix/util"
 )
 
+const (
+	emailUsJITOnly = true
+)
+
 type jit struct {
 	ac        *awsapi.Controller
 	sc        *skuvault.Ctr
@@ -412,7 +416,7 @@ func (j *jit) order(v *Vars) []error {
 			}
 
 			to := []string{login.User}
-			if !sandbox {
+			if !sandbox && !emailUsJITOnly {
 				to = append(v.settings[vend].Email, to...)
 			}
 
