@@ -7,8 +7,6 @@ import (
 
 	"time"
 
-	"net/http"
-
 	"github.com/OuttaLineNomad/skuvault"
 	"github.com/WedgeNix/awsapi"
 	"github.com/WedgeNix/awsapi/dir"
@@ -20,17 +18,17 @@ import (
 func StartWorker(c *gin.Context) error {
 	ac, err := awsapi.New()
 	if err != nil {
-		return err
+		return util.Err(err)
 	}
 
 	monDir := dir.BananasMon{}
 	err = ac.OpenDir(dir.BananasMonName, monDir)
 	if err != nil {
-		return err
+		return util.Err(err)
 	}
 
 	if len(monDir) < 1 {
-		util.HTTPStatus(c, http.StatusNoContent, "No files found in AWS")
+		util.Log("No files found in AWS")
 		return nil
 	}
 
@@ -40,14 +38,16 @@ func StartWorker(c *gin.Context) error {
 		WarehouseID:        34,
 		TransactionType:    "Add",
 		TransactionReasons: []string{"receiving"},
-		FromDate:           util.LANow().Add(-26 * time.Hour),
-		ToDate:             util.LANow(),
-		PageNumber:         1,
+		FromDate:           util.LANow().Add(-26 * time.Hour).Format("2006-01-02T15:04:05.9999999Z"),
+		ToDate:             util.LANow().Format("2006-01-02T15:04:05.9999999Z"),
+		PageSize:           10000,
 	}
+	util.Log(pld)
 	var scanned string
 	for {
 		resp := sc.Inventory.GetTransactions(pld)
 		pld.PageNumber++
+		util.Log(resp)
 
 		// this is the end of our pages
 		if len(resp.Transactions) < 1 {
@@ -56,12 +56,12 @@ func StartWorker(c *gin.Context) error {
 
 		b, err := json.Marshal(resp.Transactions)
 		if err != nil {
-			return err
+			return util.Err(err)
 		}
 
 		scanned += string(b)
 	}
-
+	util.Log("pre scanned unloading")
 	for vend, mon := range monDir {
 		for sku, monSKU := range mon.SKUs {
 			if !strings.Contains(scanned, sku) {
@@ -90,10 +90,8 @@ func StartWorker(c *gin.Context) error {
 	// save changes on AWS
 	err = ac.SaveDir(dir.BananasMonName, monDir)
 	if err != nil {
-		return err
+		return util.Err(err)
 	}
-
-	util.HTTPStatus(c, http.StatusOK, "Successfully removed 'pending' from SKUs on AWS")
 
 	return nil
 }
