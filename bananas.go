@@ -709,7 +709,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 
 			attachment := ""
 			if v.settings[vendor].FileDownload && len(bunch) > 0 {
-				attachment = bunch.csv(vendor)
+				attachment = bunch.csv(po)
 			}
 
 			if !paperless {

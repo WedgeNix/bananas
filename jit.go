@@ -275,8 +275,10 @@ func (j *jit) monToSKUs(poDay bool) []string {
 
 			if soldToday && monSKU.Days > 0 {
 				monSKU.Days += daysOld
+				monSKU.LastUTC = j.utc
 			} else if soldToday {
 				monSKU.Days = 1
+				monSKU.LastUTC = j.utc
 				expired = false
 			}
 			if soldToday {
@@ -344,9 +346,16 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 
 		vend, avgWait, monSKU := j.vendAvgWaitMonSKU(sku)
 
+		daysOld := int(j.utc.Sub(monSKU.LastUTC).Hours()/24 + 0.5)
+		monSKU.Days += daysOld
+
 		f := float64(monSKU.Sold) / float64(monSKU.Days)
 		rp := (avgWait + float64(v.settings[vend].ReordPtAdd)) * f
 		rtrdr := math.Min(float64(monSKU.Days)/float64(j.cfgFile.OrdXDaysWorth), 1)
+
+		if w1 > 0 && rtrdr < 1 && monSKU.Sold == 1 {
+			continue
+		}
 
 		if float64(w1) > rp {
 			continue
@@ -503,6 +512,9 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 			return
 		}
 
+		// MIGHT BE REDUNDANT
+		// MIGHT BE REDUNDANT
+		// MIGHT BE REDUNDANT
 		for sku := range j.soldToday {
 			for vend, mon := range j.monDir {
 				monSKU, exists := mon.SKUs[sku]
