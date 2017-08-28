@@ -67,7 +67,8 @@ func StartWorker(c *gin.Context) error {
 			if !strings.Contains(scanned, sku) {
 				continue
 			}
-			monSKU.LastUTC = time.Now().UTC()
+			// forgiveness
+			// monSKU.LastUTC = time.Now().UTC()
 
 			mon.OrdSKUCnt++
 			dayDiff := math.Max(util.LANow().Sub(monSKU.Pending).Hours()/24, 1)

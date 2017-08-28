@@ -357,7 +357,7 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 			continue
 		}
 
-		if float64(w1) > rp {
+		if w1 > int(rp) {
 			continue
 		}
 
