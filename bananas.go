@@ -35,7 +35,6 @@ import (
 const (
 	// removes real world side effects to testing purposes
 	sandbox    = false
-	paperless  = false
 	ignoreCF1  = false
 	monitoring = true
 
@@ -61,7 +60,8 @@ var (
 	appPass      string
 
 	// hit intended to exist in memory until the controlling mux dies
-	hit bool
+	hit       bool
+	paperless bool
 )
 
 // Monitor JUST FOR TESTING NEED TO REPLACEW
@@ -128,6 +128,12 @@ func (p *payload) preserveItems() []order {
 	}
 
 	return ords
+}
+
+// RunPaperless runs Bananas® without emailing anybody.
+func RunPaperless() []error {
+	paperless = true
+	return Run()
 }
 
 // Run initializes all package-level variables.
@@ -719,7 +725,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 					err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
 					attempts++
 					if err != nil {
-						if attempts <= 3 {
+						if attempts <= 4 {
 							util.Log("Failed to send email. [retrying]")
 							t := time.Duration(3 * attempts)
 							time.Sleep(t * time.Second)
