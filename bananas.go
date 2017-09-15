@@ -747,6 +747,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 	util.Log("wait for goroutines to finish emailing")
 	emailing.Wait()
 	util.Log("Emailing round-trip: ", time.Since(start))
+	login.Stop()
 
 	close(mailerrc)
 
