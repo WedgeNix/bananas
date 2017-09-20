@@ -34,8 +34,8 @@ import (
 
 const (
 	// removes real world side effects to testing purposes
-	sandbox    = false
-	ignoreCF1  = false
+	sandbox    = true
+	ignoreCF1  = true
 	monitoring = true
 
 	// shipURL is the http location for API calls.
@@ -708,7 +708,8 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 				return
 			}
 
-			to := []string{login.User}
+			// to := []string{login.User}
+			to := []string{"wedgenix.app.bananas@gmail.com"}
 			if !sandbox {
 				to = append(v.settings[vendor].Email, to...)
 			}
