@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/WedgeNix/wedgeMail"
+
 	"regexp"
 
 	"math"
@@ -654,16 +656,21 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 		return nil, []error{util.Err(err)}
 	}
 
-	login := util.EmailLogin{
-		User: comEmailUser,
-		Pass: comEmailPass,
-		SMTP: comEmailSMTP,
+	// login := util.EmailLogin{
+	// 	User: comEmailUser,
+	// 	Pass: comEmailPass,
+	// 	SMTP: comEmailSMTP,
+	// }
+
+	login, err := wedgemail.StartMail()
+	if err != nil {
+		return nil, []error{util.Err(err)}
 	}
 
-	if sandbox {
-		login.User = appUser
-		login.Pass = appPass
-	}
+	// if sandbox {
+	// 	login.User = appUser
+	// 	login.Pass = appPass
+	// }
 
 	var emailing sync.WaitGroup
 	start := time.Now()
@@ -709,7 +716,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 			}
 
 			// to := []string{login.User}
-			to := []string{"wedgenix.app.bananas@gmail.com"}
+			to := []string{"wedgenix.app.bananas@gmail.com", "mullenb@wedgenix.com"}
 			if !sandbox {
 				to = append(v.settings[vendor].Email, to...)
 			}
@@ -748,7 +755,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 	util.Log("wait for goroutines to finish emailing")
 	emailing.Wait()
 	util.Log("Emailing round-trip: ", time.Since(start))
-	login.Stop()
+	// login.Stop()
 
 	close(mailerrc)
 
