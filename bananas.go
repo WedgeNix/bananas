@@ -163,7 +163,7 @@ func Run() []error {
 		return []error{util.NewErr("empty settings response")}
 	}
 
-	printJSON(sets)
+	// printJSON(sets)
 
 	// compile all vendor name expressions
 	exprs := map[string]*regexp.Regexp{}
