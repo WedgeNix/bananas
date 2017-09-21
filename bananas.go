@@ -728,25 +728,9 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 
 			if !paperless {
 				email := buf.String()
-				attempts := 0
-				for {
-					err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
-					attempts++
-					if err != nil {
-						if attempts <= 4 {
-							util.Log("Failed to send email. [retrying]")
-							t := time.Duration(3 * attempts)
-							time.Sleep(t * time.Second)
-							continue
-						} else {
-							util.Log("Failed to send email! [FAILED]")
-							util.Log(vendor, " ==> ", bunch)
-							delete(b, vendor) // remove so it doesn't get tagged; rerun
-							mailerrc <- errors.New("failed to email " + vendor)
-							return
-						}
-					}
-					return
+				err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
+				if err != nil {
+					mailerrc <- errors.New("failed to email " + vendor)
 				}
 			}
 		}()

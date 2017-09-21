@@ -434,27 +434,11 @@ func (j *jit) order(v *Vars) []error {
 				attachment = bun.csv(vend)
 			}
 
-			if !paperless || !monitoring {
+			if !paperless {
 				email := buf.String()
-				attempts := 0
-				for {
-					err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
-					attempts++
-					if err != nil {
-						if attempts <= 3 {
-							util.Log("Failed to send email. [retrying]")
-							t := time.Duration(3 * attempts)
-							time.Sleep(t * time.Second)
-							continue
-						} else {
-							util.Log("Failed to send email! [FAILED]")
-							util.Log(vend, " ==> ", bun)
-							delete(j.bans, vend) // remove so it doesn't get tagged; rerun
-							mailerrc <- util.NewErr("failed to email " + vend)
-							return
-						}
-					}
-					return
+				err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
+				if err != nil {
+					mailerrc <- errors.New("failed to email " + vend)
 				}
 			}
 		}()
