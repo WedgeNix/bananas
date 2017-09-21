@@ -715,8 +715,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 				return
 			}
 
-			// to := []string{login.User}
-			to := []string{"wedgenix.app.bananas@gmail.com", "mullenb@wedgenix.com"}
+			to := []string{appUser}
 			if !sandbox {
 				to = append(v.settings[vendor].Email, to...)
 			}

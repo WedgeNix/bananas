@@ -15,6 +15,7 @@ import (
 	"github.com/WedgeNix/awsapi/file"
 	"github.com/WedgeNix/awsapi/types"
 	"github.com/WedgeNix/util"
+	wedgemail "github.com/WedgeNix/wedgeMail"
 )
 
 const (
@@ -380,16 +381,21 @@ func (j *jit) order(v *Vars) []error {
 		return []error{util.Err(err)}
 	}
 
-	login := util.EmailLogin{
-		User: comEmailUser,
-		Pass: comEmailPass,
-		SMTP: comEmailSMTP,
+	login, err := wedgemail.StartMail()
+	if err != nil {
+		return []error{util.Err(err)}
 	}
 
-	if sandbox {
-		login.User = appUser
-		login.Pass = appPass
-	}
+	// login := util.EmailLogin{
+	// 	User: comEmailUser,
+	// 	Pass: comEmailPass,
+	// 	SMTP: comEmailSMTP,
+	// }
+
+	// if sandbox {
+	// 	login.User = appUser
+	// 	login.Pass = appPass
+	// }
 
 	var emailing sync.WaitGroup
 	start := time.Now()
@@ -424,7 +430,7 @@ func (j *jit) order(v *Vars) []error {
 				return
 			}
 
-			to := []string{login.User}
+			to := []string{appUser}
 			if !sandbox && !emailUsJITOnly {
 				to = append(v.settings[vend].Email, to...)
 			}
