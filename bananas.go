@@ -36,8 +36,8 @@ import (
 
 const (
 	// removes real world side effects to testing purposes
-	sandbox    = true
-	ignoreCF1  = true
+	sandbox    = false
+	ignoreCF1  = false
 	monitoring = true
 
 	// shipURL is the http location for API calls.
