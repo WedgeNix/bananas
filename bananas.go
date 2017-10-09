@@ -9,8 +9,6 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/WedgeNix/wedgeMail"
-
 	"regexp"
 
 	"math"
@@ -21,6 +19,7 @@ import (
 
 	"github.com/WedgeNix/util"
 	"github.com/WedgeNix/warehouse-settings"
+	wedgemail "github.com/WedgeNix/wedgeMail"
 
 	"bytes"
 	"html/template"
@@ -437,7 +436,7 @@ OrderLoop:
 	util.Log(`len(pay.Orders)=`, len(pay.Orders))
 	dsOrds := []order{}
 	for _, ord := range pay.Orders {
-		if ord.OrderStatus != "awaiting_shipment" {
+		if ord.OrderStatus != "awaiting_shipment" && ord.OrderStatus != "on_hold" {
 			continue
 		}
 		dsOrds = append(dsOrds, ord)
