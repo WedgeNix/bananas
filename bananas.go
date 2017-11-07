@@ -404,7 +404,7 @@ OrderLoop:
 		for _, itm := range items {
 			w2 := v.hasVendor.MatchString(itm.WarehouseLocation)
 			mon, _ := v.isMonAndVend(itm)
-			if !w2 && !mon {
+			if !(w2 || mon) {
 				continue
 			}
 			ord.Items = append(ord.Items, itm)
@@ -642,10 +642,9 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 	util.Log("removing monitors from drop ship emails")
 
 	for vend, set := range v.settings {
-		if !set.Monitor {
-			continue
+		if set.Monitor && !set.Hybrid {
+			delete(b, vend)
 		}
-		delete(b, vend)
 	}
 
 	util.Log("parse HTML template")
@@ -677,7 +676,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 	mailerrc := make(chan error)
 
 	for V, set := range v.settings {
-		if set.Monitor {
+		if set.Monitor && !set.Hybrid {
 			continue
 		}
 
