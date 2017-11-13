@@ -37,7 +37,7 @@ const (
 	// removes real world side effects to testing purposes
 	sandbox    = false
 	ignoreCF1  = false
-	monitoring = true
+	monitoring = false
 
 	// shipURL is the http location for API calls.
 	shipURL = "https://ssapi.shipstation.com/"
@@ -139,6 +139,7 @@ func RunPaperless() []error {
 
 // Run initializes all package-level variables.
 func Run() []error {
+	paperless = true
 	if hit && !paperless {
 		return []error{util.NewErr("bananas already hit; we don't want to re-email everyone")}
 	}
@@ -247,9 +248,13 @@ func Run() []error {
 
 	util.Log("save config file on AWS")
 
-	errc = v.j.saveAWSChanges(upc)
-	if err = <-errc; err != nil {
-		return v.err(err)
+	if monitoring {
+		errc = v.j.saveAWSChanges(upc)
+		if err = <-errc; err != nil {
+			return v.err(err)
+		}
+	} else {
+		println("[not saving monitor file(s); monitoring=false]")
 	}
 
 	hit = true
@@ -267,8 +272,10 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 
 	util.Log(`Bananas hit @`, util.LANow())
 
-	a := v.j.cfgFile.LastLA
-	b := util.LANow()
+	// a := v.j.cfgFile.LastLA
+	la, _ := time.LoadLocation("America/Los_Angeles")
+	a := time.Date(2017, time.November, 10, 8, 2, 38, 0, la)
+	b := time.Date(2017, time.November, 13, 7, 57, 0, 0, la)
 	util.Log(`last=`, a)
 	util.Log(`today=`, b)
 	// 3/4ths of a day to give wiggle room for Matt's timing
@@ -780,16 +787,21 @@ func (v *Vars) tagAndUpdate(b taggableBananas) error {
 		}
 	}
 
-	if len(v.taggables) > 0 && !sandbox {
-		resp, err := v.login.Post(shipURL+`orders/createorders`, v.taggables)
-		if err != nil {
-			return err
+	if L, step := len(v.taggables), 100; !sandbox && L > 0 {
+		for i := 0; i < L; i += step {
+			resp, err := v.login.Post(shipURL+`orders/createorders`, v.taggables[i:min(i+step, L)])
+			if err != nil {
+				return err
+			}
+			if resp.StatusCode >= 300 {
+				return errors.New(resp.Status)
+			}
+			b, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+			util.Log("CREATEORDERS_RESP: ", string(b))
 		}
-		b, err := ioutil.ReadAll(resp.Body)
-		if err != nil {
-			return err
-		}
-		util.Log("CREATEORDERS_RESP: ", string(b))
 	}
 
 	if sandbox {
