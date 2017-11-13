@@ -37,7 +37,7 @@ const (
 	// removes real world side effects to testing purposes
 	sandbox    = false
 	ignoreCF1  = false
-	monitoring = false
+	monitoring = true
 
 	// shipURL is the http location for API calls.
 	shipURL = "https://ssapi.shipstation.com/"
@@ -139,7 +139,6 @@ func RunPaperless() []error {
 
 // Run initializes all package-level variables.
 func Run() []error {
-	paperless = true
 	if hit && !paperless {
 		return []error{util.NewErr("bananas already hit; we don't want to re-email everyone")}
 	}
@@ -246,15 +245,14 @@ func Run() []error {
 	err = v.tagAndUpdate(taggableBans)
 	v.err(err)
 
-	util.Log("save config file on AWS")
-
-	if monitoring {
+	if !sandbox && monitoring {
+		util.Log("save config file on AWS")
 		errc = v.j.saveAWSChanges(upc)
 		if err = <-errc; err != nil {
 			return v.err(err)
 		}
 	} else {
-		println("[not saving monitor file(s); monitoring=false]")
+		println("[not saving monitor file(s)]")
 	}
 
 	hit = true
@@ -272,10 +270,11 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 
 	util.Log(`Bananas hit @`, util.LANow())
 
-	// a := v.j.cfgFile.LastLA
-	la, _ := time.LoadLocation("America/Los_Angeles")
-	a := time.Date(2017, time.November, 10, 8, 2, 38, 0, la)
-	b := time.Date(2017, time.November, 13, 7, 57, 0, 0, la)
+	a := v.j.cfgFile.LastLA
+	b := util.LANow()
+	// la, _ := time.LoadLocation("America/Los_Angeles")
+	// a := time.Date(2017, time.November, 10, 8, 2, 38, 0, la)
+	// b := time.Date(2017, time.November, 13, 7, 57, 0, 0, la)
 	util.Log(`last=`, a)
 	util.Log(`today=`, b)
 	// 3/4ths of a day to give wiggle room for Matt's timing
@@ -567,6 +566,10 @@ func (v *Vars) add(bans bananas, i *item) error {
 	skupc, err := v.skupc(*i)
 	if err != nil {
 		return err
+	}
+	if mon, vnd := v.isMonAndVend(*i); mon && !v.settings[vnd].Hybrid {
+		println("[found non-hybrid monitor; not adding to bananas]")
+		return nil
 	}
 	v.addBan(bans, vend, banana{skupc, i.Quantity})
 	return nil
