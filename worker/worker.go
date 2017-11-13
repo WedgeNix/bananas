@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/OuttaLineNomad/skuvault"
+	"github.com/OuttaLineNomad/skuvault/inventory"
 	"github.com/WedgeNix/awsapi"
 	"github.com/WedgeNix/awsapi/dir"
 	"github.com/WedgeNix/util"
@@ -34,12 +35,12 @@ func StartWorker(c *gin.Context) error {
 
 	sc := skuvault.NewEnvCredSession()
 
-	pld := &skuvault.GetTransactions{
+	pld := &inventory.GetTransactions{
 		WarehouseID:        34,
 		TransactionType:    "Add",
 		TransactionReasons: []string{"receiving"},
-		FromDate:           util.LANow().Add(-26 * time.Hour),
-		ToDate:             util.LANow(),
+		FromDate:           skuvault.TimeString(util.LANow().Add(-26 * time.Hour)),
+		ToDate:             skuvault.TimeString(util.LANow()),
 		PageSize:           10000,
 	}
 	util.Log(pld)
