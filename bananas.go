@@ -267,8 +267,17 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 
 	util.Log(`Bananas hit @`, util.LANow())
 
+	a := v.j.cfgFile.LastLA
+	b := util.LANow()
+	util.Log(`last=`, a)
+	util.Log(`today=`, b)
+	// 3/4ths of a day to give wiggle room for Matt's timing
+	if b.Sub(a).Hours()/24 < 0.75 {
+		return nil, util.NewErr("same day still; reset AWS config LastLA date")
+	}
+
 	pay := &payload{}
-	reqs, secs, err := v.getPage(pg, pay)
+	reqs, secs, err := v.getPage(pg, pay, a, b)
 	if err != nil {
 		return pay, util.Err(err)
 	}
@@ -278,7 +287,7 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 		ords := pay.Orders
 
 		pay = &payload{}
-		reqs, secs, err = v.getPage(pg, pay)
+		reqs, secs, err = v.getPage(pg, pay, a, b)
 		if err != nil {
 			return pay, util.Err(err)
 		}
@@ -300,23 +309,11 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 
 // const theday = 0
 
-func (v *Vars) getPage(page int, pay *payload) (int, int, error) {
-	last := v.j.cfgFile.LastLA
-	today := util.LANow()
-	v.j.cfgFile.LastLA = today
-
-	util.Log(`last=`, last)
-	util.Log(`today=`, today)
-
-	// 3/4ths of a day to give wiggle room for Matt's timing
-	if today.Sub(last).Hours()/24 < 0.75 {
-		return 0, 0, util.NewErr("same day still; reset AWS config LastLA date")
-	}
-
+func (v *Vars) getPage(page int, pay *payload, a, b time.Time) (int, int, error) {
 	query := url.Values(map[string][]string{})
 	query.Set(`page`, strconv.Itoa(page))
-	query.Set(`createDateStart`, last.Format("2006-01-02 15:04:05"))
-	query.Set(`createDateEnd`, today.Format("2006-01-02 15:04:05"))
+	query.Set(`createDateStart`, a.Format("2006-01-02 15:04:05"))
+	query.Set(`createDateEnd`, b.Format("2006-01-02 15:04:05"))
 	query.Set(`pageSize`, `500`)
 
 	resp, err := v.login.Get(shipURL + `orders?` + query.Encode())

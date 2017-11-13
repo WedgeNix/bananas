@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/OuttaLineNomad/skuvault"
+	"github.com/OuttaLineNomad/skuvault/inventory"
+	"github.com/OuttaLineNomad/skuvault/products"
 	"github.com/WedgeNix/awsapi"
 	"github.com/WedgeNix/awsapi/dir"
 	"github.com/WedgeNix/awsapi/file"
@@ -164,7 +166,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 		defer close(upc)
 		defer close(errc)
 
-		pay := skuvault.GetProducts{
+		pay := products.GetProducts{
 			PageSize: 10000,
 		}
 
@@ -241,7 +243,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 	return upc, errc
 }
 
-func locsAndExterns(locs []skuvault.SkuLocations) (w1 int, w2 int) {
+func locsAndExterns(locs []inventory.SkuLocations) (w1 int, w2 int) {
 	for _, loc := range locs {
 		if loc.WarehouseCode == "W1" {
 			w1 = loc.Quantity
@@ -335,7 +337,7 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 	if len(skus) < 1 {
 		return
 	}
-	pay := skuvault.GetInventoryByLocation{ProductSKUs: skus}
+	pay := inventory.GetInventoryByLocation{ProductSKUs: skus}
 	resp := j.sc.Inventory.GetInventoryByLocation(&pay)
 
 	for sku, locs := range resp.Items {
