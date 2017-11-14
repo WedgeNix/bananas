@@ -462,7 +462,9 @@ func (v *Vars) print(p payload) error {
 			}
 			skupc, err := v.skupc(i)
 			if err != nil {
-				return err
+				println(util.Err(err).Error())
+				continue
+				// return nil, util.Err(err)
 			}
 			// fmt.Printf("%d/%d ~ %d/%d : %dx : %v | %s; %s\n", oi+1, cap(p.Orders), ii+1, cap(o.Items), i.Quantity, o.grade(v), v.skupc(i), i.WarehouseLocation)
 			util.Log(
@@ -517,10 +519,17 @@ func (v *Vars) statefulConversion(a arrangedPayload) (bananas, error) {
 		for _, i := range o.Items {
 			skupc, err := v.skupc(i)
 			if err != nil {
-				return nil, util.Err(err)
+				println(util.Err(err).Error())
+				continue
+				// return nil, util.Err(err)
 			}
 			if v.broken[o.OrderID] {
-				v.add(bans, &i)
+				err = v.add(bans, &i)
+				if err != nil {
+					println(util.Err(err).Error())
+					continue
+					// return nil, util.Err(err)
+				}
 				savedO = &o
 			} else if v.inWarehouse[skupc]-i.Quantity < 0 {
 				innerBroke = append(innerBroke, o)
@@ -537,7 +546,12 @@ func (v *Vars) statefulConversion(a arrangedPayload) (bananas, error) {
 
 	for _, o := range innerBroke {
 		for _, i := range o.Items {
-			v.add(bans, &i)
+			err := v.add(bans, &i)
+			if err != nil {
+				println(util.Err(err).Error())
+				continue
+				// return nil, util.Err(err)
+			}
 		}
 		v.taggables = append(v.taggables, o)
 	}
