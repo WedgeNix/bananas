@@ -629,10 +629,11 @@ func (b bananas) print() bananas {
 
 // Sort sorts bunches within the bananas, placing higher quantities on top
 func (b bananas) sort() bananas {
-	for _, bunch := range b {
+	for skupc, bunch := range b {
 		sort.Slice(bunch, func(i, j int) bool {
 			return bunch[i].Quantity > bunch[j].Quantity
 		})
+		b[skupc] = bunch
 	}
 	return b
 }
@@ -696,8 +697,16 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 
 	mailerrc := make(chan error)
 
+	hyBans := bananas{}
+
 	for V, set := range v.settings {
 		if set.Monitor && !set.Hybrid {
+			continue
+		}
+		if set.Hybrid {
+			if B, exists := b[V]; exists {
+				hyBans[V] = B
+			}
 			continue
 		}
 
@@ -754,9 +763,12 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 		}()
 	}
 
-	util.Log("wait for goroutines to finish emailing")
+	util.Log("Piping over hybrid bananas for Monitor to email")
+	v.j.hybrids <- hyBans
+
+	util.Log("Drop ship: wait for goroutines to finish emailing")
 	emailing.Wait()
-	util.Log("Emailing round-trip: ", time.Since(start))
+	util.Log("Drop ship: Emailing round-trip: ", time.Since(start))
 	// login.Stop()
 
 	close(mailerrc)

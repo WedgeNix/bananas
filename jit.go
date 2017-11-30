@@ -32,6 +32,7 @@ type jit struct {
 	utc       time.Time
 	soldToday map[string]bool
 	bans      bananas
+	hybrids   chan bananas
 }
 
 // create a new just-in-time handler
@@ -43,7 +44,7 @@ func newJIT() (<-chan jit, <-chan error) {
 		defer close(jc)
 		defer close(errc)
 
-		j := jit{utc: time.Now().UTC(), monDir: dir.BananasMon{}}
+		j := jit{utc: time.Now().UTC(), monDir: dir.BananasMon{}, hybrids: make(chan bananas, 1)}
 
 		ac, err := awsapi.New()
 		if err != nil {
@@ -373,8 +374,27 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 	j.bans = bans
 }
 
+func (b bananas) clean() {
+	for skupc, oldBunch := range b {
+		var cleanBunch bunch
+		for _, oldBanana := range oldBunch {
+			if oldBanana.Quantity == 0 {
+				continue
+			}
+			cleanBunch = append(cleanBunch, oldBanana)
+		}
+		b[skupc] = cleanBunch
+	}
+}
+
 // orders monitor SKUs only via email
 func (j *jit) order(v *Vars) []error {
+
+	util.Log("cleaning monitor bananas")
+	j.bans.clean()
+
+	util.Log("sorting monitor bananas")
+	j.bans.sort()
 
 	util.Log("parse HTML template")
 
@@ -404,57 +424,73 @@ func (j *jit) order(v *Vars) []error {
 
 	mailerrc := make(chan error)
 
-	for vend, bun := range j.bans {
-		vend := vend
-		bun := bun
-		emailing.Add(1)
-		go func() {
-			defer util.Log("goroutine is finished emailing an email")
-			defer emailing.Done()
+	emailThem := func(vend string, bun bunch) {
+		defer util.Log("goroutine is finished emailing an email")
+		defer emailing.Done()
 
-			util.Log("goroutine is starting to email a just-in-time vendor")
+		util.Log("goroutine is starting to email a just-in-time vendor")
 
-			t := util.LANow()
-			po := v.settings[vend].PONum + "-" + t.Format("20060102")
+		t := util.LANow()
+		po := v.settings[vend].PONum + "-" + t.Format("20060102")
 
-			inj := injection{
-				Vendor: vend,
-				Date:   t.Format("01/02/2006"),
-				PO:     po,
-				Bunch:  bun,
-			}
+		inj := injection{
+			Vendor: vend,
+			Date:   t.Format("01/02/2006"),
+			PO:     po,
+			Bunch:  bun,
+		}
 
-			buf := &bytes.Buffer{}
-			err := tmpl.Execute(buf, inj)
+		buf := &bytes.Buffer{}
+		err := tmpl.Execute(buf, inj)
+		if err != nil {
+			util.Log(vend, " ==> ", bun)
+			mailerrc <- util.Err(err)
+			return
+		}
+
+		to := []string{appUser}
+		if !sandbox && !emailUsJITOnly {
+			to = append(v.settings[vend].Email, to...)
+		}
+
+		attachment := ""
+		if v.settings[vend].FileDownload && len(bun) > 0 {
+			attachment = bun.csv(vend)
+		}
+
+		if !paperless {
+			email := buf.String()
+			err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
 			if err != nil {
-				util.Log(vend, " ==> ", bun)
-				mailerrc <- util.Err(err)
-				return
+				mailerrc <- errors.New("failed to email " + vend)
 			}
-
-			to := []string{appUser}
-			if !sandbox && !emailUsJITOnly {
-				to = append(v.settings[vend].Email, to...)
-			}
-
-			attachment := ""
-			if v.settings[vend].FileDownload && len(bun) > 0 {
-				attachment = bun.csv(vend)
-			}
-
-			if !paperless {
-				email := buf.String()
-				err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
-				if err != nil {
-					mailerrc <- errors.New("failed to email " + vend)
-				}
-			}
-		}()
+		}
 	}
 
-	util.Log("wait for goroutines to finish emailing")
+	util.Log("Joining hybrids with Monitor-emailing (no doubles)")
+	for vend, bun := range <-j.hybrids {
+		sum := map[string]int{}
+		for _, ban := range bun {
+			sum[ban.SKUPC] += ban.Quantity
+		}
+		for _, ban := range j.bans[vend] {
+			sum[ban.SKUPC] += ban.Quantity
+		}
+		j.bans[vend] = nil
+		for skupc, qt := range sum {
+			j.bans[vend] = append(j.bans[vend], banana{skupc, qt})
+		}
+	}
+
+	util.Log("Emailing any hybrids and/or monitors")
+	for vend, bun := range j.bans {
+		emailing.Add(1)
+		go emailThem(vend, bun)
+	}
+
+	util.Log("Monitor: wait for goroutines to finish emailing")
 	emailing.Wait()
-	util.Log("Emailing round-trip: ", time.Since(start))
+	util.Log("Monitor: Emailing round-trip: ", time.Since(start))
 
 	// set all emailed bananas to pending
 	for vend, mon := range j.monDir {
