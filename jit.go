@@ -371,10 +371,8 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 		qt := int(float64(j.cfgFile.OrdXDaysWorth)*f*rtrdr + 0.5)
 		min(qt, w2)
 
-		bans[vend] = append(bans[vend], banana{sku, qt})
+		j.bans[vend] = append(j.bans[vend], banana{sku, qt})
 	}
-
-	j.bans = bans
 }
 
 func (b bananas) clean() {
