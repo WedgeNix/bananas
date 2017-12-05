@@ -44,7 +44,12 @@ func newJIT() (<-chan jit, <-chan error) {
 		defer close(jc)
 		defer close(errc)
 
-		j := jit{utc: time.Now().UTC(), monDir: dir.BananasMon{}, hybrids: make(chan bananas, 1)}
+		j := jit{
+			utc:     time.Now().UTC(),
+			monDir:  dir.BananasMon{},
+			bans:    bananas{},
+			hybrids: make(chan bananas, 1),
+		}
 
 		ac, err := awsapi.New()
 		if err != nil {
@@ -331,8 +336,6 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 
 	util.Log("prepareMonMail waiting on updated channel")
 	<-updateCh
-
-	bans := bananas{}
 
 	skus := j.monToSKUs(poDay)
 	if len(skus) < 1 {
