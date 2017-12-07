@@ -272,6 +272,11 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 
 	a := v.j.cfgFile.LastLA
 	b := util.LANow()
+	if Days := b.Sub(a).Hours() * 24; Days > 2 {
+		util.Log("[[[WARNING]]]")
+		util.Log("[[[WARNING]]] days since bananas last hit =", Days)
+		util.Log("[[[WARNING]]]")
+	}
 	// la, _ := time.LoadLocation("America/Los_Angeles")
 	// a := time.Date(2017, time.November, 10, 8, 2, 38, 0, la)
 	// b := time.Date(2017, time.November, 13, 7, 57, 0, 0, la)
@@ -423,7 +428,12 @@ OrderLoop:
 	v.rdOrdWg.Add(2)
 	skuc, errca := v.j.updateAWS(rdc, v, ords)
 	upc, errcb := v.j.updateNewSKUs(skuc, v, ords)
-	v.j.prepareMonMail(upc, v)
+	errcc := make(chan error, 1)
+	if err := v.j.prepareMonMail(upc, v); err != nil {
+		util.Log(err)
+		errcc <- err
+		return filteredPayload{}, nil, util.MergeErr(errca, errcb, errcc)
+	}
 
 	go func() {
 		errs := v.j.order(v)
@@ -449,7 +459,7 @@ OrderLoop:
 		util.Log("No orders found after 'filtering'")
 	}
 	newFiltPay := filteredPayload(payload{Orders: dsOrds})
-	return newFiltPay, upc, util.MergeErr(errca, errcb)
+	return newFiltPay, upc, util.MergeErr(errca, errcb, errcc)
 }
 
 // Print prints the payload in a super minimal format.

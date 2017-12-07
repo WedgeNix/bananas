@@ -272,7 +272,7 @@ func (j *jit) vendAvgWaitMonSKU(sku string) (string, float64, types.BananasMonSK
 	panic("skuToMonVend: can't find sku in monitor directory")
 }
 
-func (j *jit) monToSKUs(poDay bool) []string {
+func (j *jit) monToSKUs(poDay bool) ([]string, error) {
 	skus := []string{}
 
 	for vend, mon := range j.monDir {
@@ -318,10 +318,14 @@ func (j *jit) monToSKUs(poDay bool) []string {
 		j.monDir[vend] = mon
 	}
 
-	return skus
+	if len(skus) > 0 && !poDay {
+		return nil, errors.New("trying to add skus to monitor email on non-po day")
+	}
+
+	return skus, nil
 }
 
-func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
+func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 
 	util.Log("matching P.O. days with today")
 
@@ -337,9 +341,12 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 	util.Log("prepareMonMail waiting on updated channel")
 	<-updateCh
 
-	skus := j.monToSKUs(poDay)
+	skus, err := j.monToSKUs(poDay)
+	if err != nil {
+		return err
+	}
 	if len(skus) < 1 {
-		return
+		return nil
 	}
 	pay := inventory.GetInventoryByLocation{ProductSKUs: skus}
 	resp := j.sc.Inventory.GetInventoryByLocation(&pay)
@@ -373,6 +380,8 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) {
 
 		j.bans[vend] = append(j.bans[vend], banana{sku, qt})
 	}
+
+	return nil
 }
 
 func (b bananas) clean() {
