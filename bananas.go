@@ -272,9 +272,9 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 
 	a := v.j.cfgFile.LastLA
 	b := util.LANow()
-	if Days := b.Sub(a).Hours() * 24; Days > 2 {
+	if Days := b.Sub(a).Hours() / 24; Days > 2 {
 		util.Log("[[[WARNING]]]")
-		util.Log("[[[WARNING]]] days since bananas last hit =", Days)
+		util.Log("[[[WARNING]]] days since bananas last hit =", int(Days))
 		util.Log("[[[WARNING]]]")
 	}
 	// la, _ := time.LoadLocation("America/Los_Angeles")

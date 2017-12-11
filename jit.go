@@ -566,6 +566,8 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 			}
 		}
 
+		j.cfgFile.LastLA = util.LANow()
+
 		err := j.ac.Save(file.BananasCfgName, j.cfgFile)
 		if err != nil {
 			errc <- util.Err(err)
