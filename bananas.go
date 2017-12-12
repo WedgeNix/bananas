@@ -61,8 +61,9 @@ var (
 	appPass      string
 
 	// hit intended to exist in memory until the controlling mux dies
-	hit       bool
-	paperless bool
+	hit                      bool
+	paperless                bool
+	dontEmailButCreateOrders bool
 )
 
 // Monitor JUST FOR TESTING NEED TO REPLACEW
@@ -108,8 +109,6 @@ type Vars struct {
 
 	rdOrdWg sync.WaitGroup
 
-	dontEmailButCreateOrders bool
-
 	// holds onto errors that need to be handled later for damage control
 	errs []error
 }
@@ -131,6 +130,13 @@ func (p *payload) preserveItems() []order {
 	}
 
 	return ords
+}
+
+// CreateOrdersOnly runs Bananas® only creating orders on Ship Station.
+func CreateOrdersOnly() []error {
+	paperless = true
+	dontEmailButCreateOrders = true
+	return Run()
 }
 
 // RunPaperless runs Bananas® without emailing anybody.
@@ -212,7 +218,7 @@ func Run() []error {
 	util.Log("filter the orders for drop ship only (except monitors)")
 
 	filteredPay, upc, errc := v.filterDropShipment(pay, rdc)
-	if !v.dontEmailButCreateOrders {
+	if !dontEmailButCreateOrders {
 		if err = <-errc; err != nil {
 			return v.err(err)
 		}
@@ -249,7 +255,7 @@ func Run() []error {
 	err = v.tagAndUpdate(taggableBans)
 	v.err(err)
 
-	if !sandbox && monitoring && !v.dontEmailButCreateOrders {
+	if !sandbox && monitoring && !dontEmailButCreateOrders {
 		util.Log("save config file on AWS")
 		errc = v.j.saveAWSChanges(upc)
 		if err = <-errc; err != nil {
@@ -288,11 +294,7 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	util.Log(`today=`, b)
 	// 3/4ths of a day to give wiggle room for Matt's timing
 	if b.Sub(a).Hours()/24 < 0.75 {
-		if paperless {
-			v.dontEmailButCreateOrders = true
-		} else {
-			return nil, util.NewErr("same day still; reset AWS config LastLA date")
-		}
+		return nil, util.NewErr("same day still; reset AWS config LastLA date")
 	}
 
 	pay := &payload{}
@@ -439,7 +441,7 @@ OrderLoop:
 
 	var upc <-chan updated
 	var errca, errcb <-chan error
-	if !v.dontEmailButCreateOrders {
+	if !dontEmailButCreateOrders {
 		skuc, errca := v.j.updateAWS(rdc, v, ords)
 		upc, errcb = v.j.updateNewSKUs(skuc, v, ords)
 		if err := v.j.prepareMonMail(upc, v); err != nil {
@@ -473,7 +475,7 @@ OrderLoop:
 	}
 	newFiltPay := filteredPayload(payload{Orders: dsOrds})
 
-	if !v.dontEmailButCreateOrders {
+	if !dontEmailButCreateOrders {
 		return newFiltPay, upc, util.MergeErr(errca, errcb, errcc)
 	}
 	return newFiltPay, nil, nil
@@ -780,7 +782,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 				attachment = bunch.csv(po)
 			}
 
-			if !paperless && !v.dontEmailButCreateOrders {
+			if !paperless && !dontEmailButCreateOrders {
 				email := buf.String()
 				err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
 				if err != nil {
