@@ -108,6 +108,8 @@ type Vars struct {
 
 	rdOrdWg sync.WaitGroup
 
+	dontEmailButCreateOrders bool
+
 	// holds onto errors that need to be handled later for damage control
 	errs []error
 }
@@ -210,8 +212,10 @@ func Run() []error {
 	util.Log("filter the orders for drop ship only (except monitors)")
 
 	filteredPay, upc, errc := v.filterDropShipment(pay, rdc)
-	if err = <-errc; err != nil {
-		return v.err(err)
+	if !v.dontEmailButCreateOrders {
+		if err = <-errc; err != nil {
+			return v.err(err)
+		}
 	}
 
 	util.Log("arrange the orders based on time-preference grading")
@@ -245,7 +249,7 @@ func Run() []error {
 	err = v.tagAndUpdate(taggableBans)
 	v.err(err)
 
-	if !sandbox && monitoring {
+	if !sandbox && monitoring && !v.dontEmailButCreateOrders {
 		util.Log("save config file on AWS")
 		errc = v.j.saveAWSChanges(upc)
 		if err = <-errc; err != nil {
@@ -284,7 +288,11 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	util.Log(`today=`, b)
 	// 3/4ths of a day to give wiggle room for Matt's timing
 	if b.Sub(a).Hours()/24 < 0.75 {
-		return nil, util.NewErr("same day still; reset AWS config LastLA date")
+		if paperless {
+			v.dontEmailButCreateOrders = true
+		} else {
+			return nil, util.NewErr("same day still; reset AWS config LastLA date")
+		}
 	}
 
 	pay := &payload{}
@@ -426,24 +434,29 @@ OrderLoop:
 	}
 	util.Log(`len(ords)=`, len(ords))
 	v.rdOrdWg.Add(2)
-	skuc, errca := v.j.updateAWS(rdc, v, ords)
-	upc, errcb := v.j.updateNewSKUs(skuc, v, ords)
-	errcc := make(chan error, 1)
-	if err := v.j.prepareMonMail(upc, v); err != nil {
-		util.Log(err)
-		errcc <- err
-		return filteredPayload{}, nil, util.MergeErr(errca, errcb, errcc)
-	}
 
-	go func() {
-		errs := v.j.order(v)
-		for _, err := range errs {
-			if err == nil {
-				continue
-			}
+	errcc := make(chan error, 1)
+
+	var upc <-chan updated
+	var errca, errcb <-chan error
+	if !v.dontEmailButCreateOrders {
+		skuc, errca := v.j.updateAWS(rdc, v, ords)
+		upc, errcb = v.j.updateNewSKUs(skuc, v, ords)
+		if err := v.j.prepareMonMail(upc, v); err != nil {
 			util.Log(err)
+			errcc <- err
+			return filteredPayload{}, nil, util.MergeErr(errca, errcb, errcc)
 		}
-	}()
+		go func() {
+			errs := v.j.order(v)
+			for _, err := range errs {
+				if err == nil {
+					continue
+				}
+				util.Log(err)
+			}
+		}()
+	}
 
 	v.rdOrdWg.Wait()
 	util.Log(`len(pay.Orders)=`, len(pay.Orders))
@@ -459,7 +472,11 @@ OrderLoop:
 		util.Log("No orders found after 'filtering'")
 	}
 	newFiltPay := filteredPayload(payload{Orders: dsOrds})
-	return newFiltPay, upc, util.MergeErr(errca, errcb, errcc)
+
+	if !v.dontEmailButCreateOrders {
+		return newFiltPay, upc, util.MergeErr(errca, errcb, errcc)
+	}
+	return newFiltPay, nil, nil
 }
 
 // Print prints the payload in a super minimal format.
@@ -763,7 +780,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 				attachment = bunch.csv(po)
 			}
 
-			if !paperless {
+			if !paperless && !v.dontEmailButCreateOrders {
 				email := buf.String()
 				err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
 				if err != nil {
