@@ -435,13 +435,14 @@ OrderLoop:
 		pay.Orders = append(pay.Orders, ord)
 	}
 	util.Log(`len(ords)=`, len(ords))
-	v.rdOrdWg.Add(2)
 
 	errcc := make(chan error, 1)
 
 	var upc <-chan updated
 	var errca, errcb <-chan error
 	if !dontEmailButCreateOrders {
+		v.rdOrdWg.Add(2)
+
 		skuc, errca := v.j.updateAWS(rdc, v, ords)
 		upc, errcb = v.j.updateNewSKUs(skuc, v, ords)
 		if err := v.j.prepareMonMail(upc, v); err != nil {
@@ -458,9 +459,10 @@ OrderLoop:
 				util.Log(err)
 			}
 		}()
+
+		v.rdOrdWg.Wait()
 	}
 
-	v.rdOrdWg.Wait()
 	util.Log(`len(pay.Orders)=`, len(pay.Orders))
 	dsOrds := []order{}
 	for _, ord := range pay.Orders {
