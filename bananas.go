@@ -792,8 +792,10 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 		}()
 	}
 
-	util.Log("Piping over hybrid bananas for Monitor to email")
-	v.j.hybrids <- hyBans
+	if !dontEmailButCreateOrders {
+		util.Log("Piping over hybrid bananas for Monitor to email")
+		v.j.hybrids <- hyBans
+	}
 
 	util.Log("Drop ship: wait for goroutines to finish emailing")
 	emailing.Wait()
