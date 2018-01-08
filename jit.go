@@ -463,14 +463,17 @@ func (j *jit) order(v *Vars) []error {
 			to = append(v.settings[vend].Email, to...)
 		}
 
-		attachment := ""
+		var att wedgemail.Attachment
 		if v.settings[vend].FileDownload && len(bun) > 0 {
-			attachment = bun.csv(vend)
+			att, err = bun.csv(vend + ".csv")
+			if err != nil {
+				mailerrc <- err
+			}
 		}
 
 		if !paperless {
 			email := buf.String()
-			err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
+			err := login.Email(to, "WedgeNix PO#: "+po, email, att)
 			if err != nil {
 				mailerrc <- errors.New("failed to email " + vend)
 			}

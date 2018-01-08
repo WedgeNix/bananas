@@ -669,24 +669,27 @@ func (b bananas) sort() bananas {
 	return b
 }
 
-// CSV writes a bunch of bananas into a comma-separated file, returning the name.
-func (b bunch) csv(name string) string {
+// CSV writes a bunch of bananas into a comma-separated file, returning the buffer.
+func (b bunch) csv(name string) (wedgemail.Attachment, error) {
 
 	util.Log("create .csv for email attachment")
 
-	var f os.File
-	un.Known(os.Create(name + ".csv")).T(&f)
-	defer f.Close()
+	att := wedgemail.Attachment{Name: name}
+	buf := new(bytes.Buffer)
+	csv := csv.NewWriter(buf)
 
-	csv := csv.NewWriter(&f)
-	un.Wrap(csv.Write([]string{"SKU/UPC", "Quantity"}))
-
+	if err := csv.Write([]string{"SKU/UPC", "Quantity"}); err != nil {
+		return att, err
+	}
 	for _, banana := range b {
-		un.Wrap(csv.Write([]string{banana.SKUPC, strconv.Itoa(banana.Quantity)}))
+		if err := csv.Write([]string{banana.SKUPC, strconv.Itoa(banana.Quantity)}); err != nil {
+			return att, err
+		}
 	}
 
 	csv.Flush()
-	return f.Name()
+	att.Reader = buf
+	return att, nil
 }
 
 // Order sends email orders out to vendors for drop shipment product.
@@ -779,14 +782,17 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 				to = append(v.settings[vendor].Email, to...)
 			}
 
-			attachment := ""
+			var att wedgemail.Attachment
 			if v.settings[vendor].FileDownload && len(bunch) > 0 {
-				attachment = bunch.csv(po)
+				att, err = bunch.csv(po + ".csv")
+				if err != nil {
+					mailerrc <- err
+				}
 			}
 
 			if !paperless && !dontEmailButCreateOrders {
 				email := buf.String()
-				err := login.Email(to, "WedgeNix PO#: "+po, email, attachment)
+				err := login.Email(to, "WedgeNix PO#: "+po, email, att)
 				if err != nil {
 					mailerrc <- errors.New("failed to email " + vendor)
 				}
