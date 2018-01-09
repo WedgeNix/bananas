@@ -56,18 +56,18 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 			continue
 		}
 		if set.Hybrid {
-			if B, exists := b[V]; exists {
-				hyBans[V] = B
-			}
+			// if B, exists := b[V]; exists {
+			// 	hyBans[V] = B
+			// }
+			hyBans[V] = b[V] // toss empties in as well
 			continue
 		}
 
 		B, exists := b[V]
 		if !exists {
-
-			util.Log("send empty email")
-
+			util.Log("send empty email (drop ship)")
 		}
+
 		vendor, bunch := V, B // new "variables" for closure
 
 		emailing.Add(1)

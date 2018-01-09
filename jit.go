@@ -438,7 +438,19 @@ func (j *jit) order(v *Vars) []error {
 		defer util.Log("goroutine is finished emailing an email")
 		defer emailing.Done()
 
-		util.Log("goroutine is starting to email a just-in-time vendor")
+		set := v.settings[vend]
+		if set.Monitor && !set.Hybrid && len(bun) == 0 {
+			util.Log("monitor-only; not emailing blank")
+			return
+		} else if len(bun) == 0 {
+			util.Log("send empty email (hybrid)")
+		}
+
+		x := "Monitor"
+		if set.Hybrid {
+			x = "Hybrid"
+		}
+		util.Log("goroutine is starting to email a " + x + " vendor")
 
 		t := util.LANow()
 		po := v.settings[vend].PONum + "-" + t.Format("20060102")
@@ -508,6 +520,9 @@ func (j *jit) order(v *Vars) []error {
 	// set all emailed bananas to pending
 	for vend, mon := range j.monDir {
 		for _, ban := range j.bans[vend] {
+			if ban.Quantity == 0 { // hybrids toss empties in, too; don't pen in
+				continue
+			}
 			monSKU := mon.SKUs[ban.SKUPC]
 			monSKU.Pending = util.LANow()
 			mon.SKUs[ban.SKUPC] = monSKU
