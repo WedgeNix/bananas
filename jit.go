@@ -475,7 +475,7 @@ func (j *jit) order(v *Vars) []error {
 			email := buf.String()
 			err := login.Email(to, "WedgeNix PO#: "+po, email, att)
 			if err != nil {
-				mailerrc <- errors.New("failed to email " + vend)
+				mailerrc <- errors.New("error in emailing " + vend)
 			}
 		}
 	}

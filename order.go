@@ -112,7 +112,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 				email := buf.String()
 				err := login.Email(to, "WedgeNix PO#: "+po, email, att)
 				if err != nil {
-					mailerrc <- errors.New("failed to email " + vendor)
+					mailerrc <- errors.New("error in emailing " + vendor)
 				}
 			}
 		}()
@@ -138,7 +138,7 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 		mailerrs = append(mailerrs, mailerr)
 	}
 
-	if len(mailerrs) < 1 {
+	if len(mailerrs) == 0 {
 		mailerrs = nil
 	}
 	return taggableBananas(b), mailerrs
