@@ -27,7 +27,8 @@ func RunPaperless() []error {
 // Run initializes all package-level variables.
 func Run() []error {
 	if hit && !paperless {
-		return []error{util.NewErr("bananas already hit; we don't want to re-email everyone")}
+		util.Log("bananas already hit; we don't want to re-email everyone")
+		return []error{nil}
 	}
 
 	// pull environmental variables

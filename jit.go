@@ -278,7 +278,7 @@ func (j *jit) monToSKUs(poDay bool) ([]string, error) {
 	for vend, mon := range j.monDir {
 		for sku, monSKU := range mon.SKUs {
 			daysOld := max(int(j.utc.Sub(monSKU.LastUTC).Hours()/24+0.5), 1)
-			// util.Err(`daysOld=` + strconv.Itoa(daysOld))
+			// util.Err(`daysOld=` + itoa(daysOld))
 			_, soldToday := j.soldToday[sku]
 			expired := daysOld > monSKU.ProbationPeriod
 

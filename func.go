@@ -188,7 +188,7 @@ func (b bunch) csv(name string) (wedgemail.Attachment, error) {
 		return att, err
 	}
 	for _, banana := range b {
-		if err := csv.Write([]string{banana.SKUPC, strconv.Itoa(banana.Quantity)}); err != nil {
+		if err := csv.Write([]string{banana.SKUPC, itoa(banana.Quantity)}); err != nil {
 			return att, err
 		}
 	}
