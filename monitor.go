@@ -103,16 +103,16 @@ func (j *jit) readAWS() (<-chan read, <-chan error) {
 	return rdc, errc
 }
 
-type newSKU string
+type newSKUPC string
 
 // combs through the orders and updates entries in the AWS monitor directory
-func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, <-chan error) {
-	skuc := make(chan newSKU)
+func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKUPC, <-chan error) {
+	skupcc := make(chan newSKUPC)
 	errc := make(chan error, 1)
 
 	go func() {
 		defer v.rdOrdWg.Done()
-		defer close(skuc)
+		defer close(skupcc)
 		defer close(errc)
 
 		// util.Err("waiting on read channel")
@@ -138,19 +138,24 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 					vendMon.SKUs = types.SKUs{}
 				}
 
+				skupc := itm.SKU
+				if v.settings[vend].UseUPC {
+					skupc = itm.UPC
+				}
+
 				// if monitor SKU doesn't exist then throw its SKU into
 				// the payload for populating later
-				monSKU, exists := vendMon.SKUs[itm.SKU]
+				monSKU, exists := vendMon.SKUs[skupc]
 				if !exists {
-					util.Log(`'` + itm.SKU + `' found!`)
-					skuc <- newSKU(itm.SKU)
+					util.Log(`'` + skupc + `' found!`)
+					skupcc <- newSKUPC(skupc)
 				}
 				monSKU.Sold += itm.Quantity
 
-				j.soldToday[itm.SKU] = true
+				j.soldToday[skupc] = true
 
 				// overwrite the changes on both a file level and directory level
-				vendMon.SKUs[itm.SKU] = monSKU
+				vendMon.SKUs[skupc] = monSKU
 				j.monDir[vend] = vendMon
 			}
 		}
@@ -159,17 +164,17 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 		errc <- nil
 	}()
 
-	return skuc, errc
+	return skupcc, errc
 }
 
 type updated bool
 
-func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan updated, <-chan error) {
-	upc := make(chan updated)
+func (j *jit) updateNewSKUPCs(skupcc <-chan newSKUPC, v *Vars, ords []order) (<-chan updated, <-chan error) {
+	updc := make(chan updated)
 	errc := make(chan error, 1)
 
 	go func() {
-		defer close(upc)
+		defer close(updc)
 		defer close(errc)
 
 		pay := products.GetProducts{
@@ -179,11 +184,13 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 		util.Log("absorbing new SKUs into AWS")
 
 		// fill up non-repeating SKUs into payload's product SKU list
-		for sku := range skuc {
-			pay.ProductSKUs = append(pay.ProductSKUs, string(sku))
+		for newskupc := range skupcc {
+			skupc := string(newskupc)
+			pay.ProductSKUs = append(pay.ProductSKUs, skupc)
+			pay.ProductCodes = append(pay.ProductCodes, skupc)
 		}
 
-		if len(pay.ProductSKUs) < 1 {
+		if len(pay.ProductSKUs) < 1 && len(pay.ProductCodes) < 1 {
 
 			util.Log("No new SKUs to populate the monitor file")
 
@@ -191,7 +198,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 			fmt.Println("updateNewSKUs done")
 			errc <- nil
 			for {
-				upc <- true
+				updc <- true
 			}
 		}
 
@@ -210,7 +217,7 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 			fmt.Println("updateNewSKUs done")
 			v.rdOrdWg.Done()
 			errc <- util.Err(err)
-			upc <- false
+			updc <- false
 			return
 		}
 
@@ -220,16 +227,23 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 		for _, prod := range resp.Products {
 			for _, ord := range ords {
 				for _, itm := range ord.Items {
-					if itm.SKU != prod.Sku {
+					if len(itm.SKU) > 0 && len(prod.Sku) > 0 && itm.SKU != prod.Sku || // SKU
+						len(itm.UPC) > 0 && len(prod.Code) > 0 && itm.UPC != prod.Code { // UPC
 						continue
 					}
 
+					skupc, err := v.skupc(itm)
+					if err != nil {
+						errc <- util.Err(err)
+						updc <- false
+						return
+					}
 					monDir := j.monDir[v.getVend(itm)]
-					monSKU := monDir.SKUs[prod.Sku]
+					monSKUPC := monDir.SKUs[skupc]
 					// daysOld := int(j.utc.Sub(prod.CreatedDateUtc).Hours()/24 + 0.5)
-					// monSKU.ProbationPeriod = min(8100/daysOld, 90)
-					monSKU.LastUTC = prod.CreatedDateUtc
-					monDir.SKUs[prod.Sku] = monSKU
+					// monSKUPC.ProbationPeriod = min(8100/daysOld, 90)
+					monSKUPC.LastUTC = prod.CreatedDateUtc
+					monDir.SKUs[skupc] = monSKUPC
 
 					// actually overwrite the empty monitor SKU
 					j.monDir[v.getVend(itm)] = monDir
@@ -242,11 +256,11 @@ func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan u
 		v.rdOrdWg.Done()
 		errc <- nil
 		for {
-			upc <- true
+			updc <- true
 		}
 	}()
 
-	return upc, errc
+	return updc, errc
 }
 
 func locsAndExterns(locs []inventory.SkuLocations) (w1 int, w2 int) {
@@ -260,69 +274,69 @@ func locsAndExterns(locs []inventory.SkuLocations) (w1 int, w2 int) {
 	return
 }
 
-func (j *jit) vendAvgWaitMonSKU(sku string) (string, float64, types.BananasMonSKU) {
+func (j *jit) vendAvgWaitMonSKUPC(skupc string) (string, float64, types.BananasMonSKU, error) {
 	for vend, mon := range j.monDir {
-		for msku, monSKU := range mon.SKUs {
-			if sku != msku {
+		for mskupc, monSKUPC := range mon.SKUs {
+			if skupc != mskupc {
 				continue
 			}
-			return vend, mon.AvgWait, monSKU
+			return vend, mon.AvgWait, monSKUPC, nil
 		}
 	}
-	panic("skuToMonVend: can't find sku in monitor directory")
+	return "", 0, types.BananasMonSKU{}, errors.New("skuToMonVend: can't find sku in monitor directory")
 }
 
-func (j *jit) monToSKUs(poDay bool) ([]string, error) {
-	skus := []string{}
+func (j *jit) monToSKUPCs(poDay bool) ([]string, error) {
+	skupcs := []string{}
 
 	for vend, mon := range j.monDir {
-		for sku, monSKU := range mon.SKUs {
-			daysOld := max(int(j.utc.Sub(monSKU.LastUTC).Hours()/24+0.5), 1)
+		for skupc, monSKUPC := range mon.SKUs {
+			daysOld := max(int(j.utc.Sub(monSKUPC.LastUTC).Hours()/24+0.5), 1)
 			// util.Err(`daysOld=` + itoa(daysOld))
-			_, soldToday := j.soldToday[sku]
-			expired := daysOld > monSKU.ProbationPeriod
+			_, soldToday := j.soldToday[skupc]
+			expired := daysOld > monSKUPC.ProbationPeriod
 
-			if soldToday && monSKU.Days > 0 {
-				monSKU.Days += daysOld
-				monSKU.LastUTC = j.utc
+			if soldToday && monSKUPC.Days > 0 {
+				monSKUPC.Days += daysOld
+				monSKUPC.LastUTC = j.utc
 			} else if soldToday {
-				monSKU.Days = 1
-				monSKU.LastUTC = j.utc
+				monSKUPC.Days = 1
+				monSKUPC.LastUTC = j.utc
 				expired = false
 			}
 			if soldToday {
-				monSKU.ProbationPeriod = min(8100/daysOld, 90)
+				monSKUPC.ProbationPeriod = min(8100/daysOld, 90)
 			}
 
 			// save the monitor SKU after days was changed
-			mon.SKUs[sku] = monSKU
+			mon.SKUs[skupc] = monSKUPC
 
 			if expired {
-				delete(mon.SKUs, sku)
+				delete(mon.SKUs, skupc)
 				continue
 			}
 			if !poDay {
 				continue
 			}
-			if !monSKU.Pending.IsZero() {
+			if !monSKUPC.Pending.IsZero() {
 				continue
 			}
-			if monSKU.ProbationPeriod < 90 {
+			if monSKUPC.ProbationPeriod < 90 {
 				continue
 			}
 
-			skus = append(skus, sku)
+			skupcs = append(skupcs, skupc)
 		}
 
 		// save monitor file
 		j.monDir[vend] = mon
 	}
 
-	if len(skus) > 0 && !poDay {
+	if len(skupcs) > 0 && !poDay {
 		return nil, errors.New("trying to add skus to monitor email on non-po day")
 	}
 
-	return skus, nil
+	return skupcs, nil
 }
 
 func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
@@ -341,33 +355,53 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 	util.Log("prepareMonMail waiting on updated channel")
 	<-updateCh
 
-	skus, err := j.monToSKUs(poDay)
+	skupcs, err := j.monToSKUPCs(poDay)
 	if err != nil {
 		return err
 	}
-	if len(skus) < 1 {
+	if len(skupcs) < 1 {
 		return nil
 	}
-	pay := inventory.GetInventoryByLocation{ProductSKUs: skus}
-	resp := j.sc.Inventory.GetInventoryByLocation(&pay)
 
-	for sku, locs := range resp.Items {
+	skuresp := j.sc.Inventory.GetInventoryByLocation(&inventory.GetInventoryByLocation{
+		ProductSKUs: skupcs,
+	})
+	for _, err := range skuresp.Errors {
+		return fmt.Errorf("%s", err)
+	}
+	upcresp := j.sc.Inventory.GetInventoryByLocation(&inventory.GetInventoryByLocation{
+		IsReturnByCodes: true,
+		ProductCodes:    skupcs,
+	})
+	for _, err := range upcresp.Errors {
+		return fmt.Errorf("%s", err)
+	}
+
+	items := upcresp.Items
+	for k, v := range skuresp.Items {
+		items[k] = v
+	}
+
+	for skupc, locs := range items {
 		w1, w2 := locsAndExterns(locs)
 
 		if w2 < 1 {
 			continue
 		}
 
-		vend, avgWait, monSKU := j.vendAvgWaitMonSKU(sku)
+		vend, avgWait, monSKUPC, err := j.vendAvgWaitMonSKUPC(skupc)
+		if err != nil {
+			return err
+		}
 
-		daysOld := int(j.utc.Sub(monSKU.LastUTC).Hours()/24 + 0.5)
-		monSKU.Days += daysOld
+		daysOld := int(j.utc.Sub(monSKUPC.LastUTC).Hours()/24 + 0.5)
+		monSKUPC.Days += daysOld
 
-		f := float64(monSKU.Sold) / float64(monSKU.Days)
+		f := float64(monSKUPC.Sold) / float64(monSKUPC.Days)
 		rp := (avgWait + float64(v.settings[vend].ReordPtAdd)) * f
-		rtrdr := math.Min(float64(monSKU.Days)/float64(j.cfgFile.OrdXDaysWorth), 1)
+		rtrdr := math.Min(float64(monSKUPC.Days)/float64(j.cfgFile.OrdXDaysWorth), 1)
 
-		if w1 > 0 && rtrdr < 1 && monSKU.Sold == 1 {
+		if w1 > 0 && rtrdr < 1 && monSKUPC.Sold == 1 {
 			continue
 		}
 
@@ -378,7 +412,7 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 		qt := int(float64(j.cfgFile.OrdXDaysWorth)*f*rtrdr + 0.5)
 		min(qt, w2)
 
-		j.bans[vend] = append(j.bans[vend], banana{sku, qt})
+		j.bans[vend] = append(j.bans[vend], banana{skupc, qt})
 	}
 
 	return nil
@@ -571,14 +605,14 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 		// MIGHT BE REDUNDANT
 		// MIGHT BE REDUNDANT
 		// MIGHT BE REDUNDANT
-		for sku := range j.soldToday {
+		for skupc := range j.soldToday {
 			for vend, mon := range j.monDir {
-				monSKU, exists := mon.SKUs[sku]
+				monSKUPC, exists := mon.SKUs[skupc]
 				if !exists {
 					continue
 				}
-				monSKU.LastUTC = j.utc
-				mon.SKUs[sku] = monSKU
+				monSKUPC.LastUTC = j.utc
+				mon.SKUs[skupc] = monSKUPC
 				j.monDir[vend] = mon
 				break
 			}

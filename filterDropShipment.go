@@ -63,7 +63,7 @@ OrderLoop:
 		v.rdOrdWg.Add(2)
 
 		skuc, errca := v.j.updateAWS(rdc, v, ords)
-		upc, errcb = v.j.updateNewSKUs(skuc, v, ords)
+		upc, errcb = v.j.updateNewSKUPCs(skuc, v, ords)
 		if err := v.j.prepareMonMail(upc, v); err != nil {
 			util.Log(err)
 			errcc <- err
@@ -96,8 +96,9 @@ OrderLoop:
 	}
 	newFiltPay := filteredPayload(payload{Orders: dsOrds})
 
-	if !dontEmailButCreateOrders {
-		return newFiltPay, upc, util.MergeErr(errca, errcb, errcc)
+	errsc := util.MergeErr(errca, errcb, errcc)
+	if dontEmailButCreateOrders {
+		return newFiltPay, nil, errsc
 	}
-	return newFiltPay, nil, nil
+	return newFiltPay, upc, errsc
 }
