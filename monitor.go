@@ -33,6 +33,7 @@ type jit struct {
 	soldToday map[string]bool
 	bans      bananas
 	hybrids   chan bananas
+	sku2upc   map[string]string
 }
 
 // create a new just-in-time handler
@@ -49,6 +50,7 @@ func newJIT() (<-chan jit, <-chan error) {
 			monDir:  dir.BananasMon{},
 			bans:    bananas{},
 			hybrids: make(chan bananas, 1),
+			sku2upc: make(map[string]string),
 		}
 
 		ac, err := awsapi.New()
@@ -129,6 +131,10 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKUPC
 				isMon, vend := v.isMonAndVend(itm)
 				if !isMon {
 					continue
+				}
+
+				if v.settings[vend].UseUPC {
+					j.sku2upc[itm.SKU] = itm.UPC
 				}
 
 				// determine existence of vendor monitor file
@@ -529,11 +535,16 @@ func (j *jit) order(v *Vars) []error {
 	util.Log("Joining hybrids with Monitor-emailing (no doubles)")
 	for vend, bun := range <-j.hybrids {
 		sum := map[string]int{}
-		for _, ban := range bun {
+		for _, ban := range bun { // drop ship bananas
 			sum[ban.SKUPC] += ban.Quantity
 		}
-		for _, ban := range j.bans[vend] {
-			sum[ban.SKUPC] += ban.Quantity
+		useUPC := v.settings[vend].UseUPC
+		for _, ban := range j.bans[vend] { // monitor-only bananas
+			skupc := ban.SKUPC
+			if useUPC { // the whole design of monitor uses sku until now
+				skupc = j.sku2upc[skupc]
+			}
+			sum[skupc] += ban.Quantity
 		}
 		j.bans[vend] = nil
 		for skupc, qt := range sum {
