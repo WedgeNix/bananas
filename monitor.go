@@ -373,22 +373,10 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 		ProductSKUs: skupcs,
 	})
 	for _, err := range skuresp.Errors {
-		return fmt.Errorf("%s", err)
-	}
-	upcresp := j.sc.Inventory.GetInventoryByLocation(&inventory.GetInventoryByLocation{
-		IsReturnByCodes: true,
-		ProductCodes:    skupcs,
-	})
-	for _, err := range upcresp.Errors {
-		return fmt.Errorf("%s", err)
+		return fmt.Errorf("GetInventoryByLocation: %s", err)
 	}
 
-	items := upcresp.Items
-	for k, v := range skuresp.Items {
-		items[k] = v
-	}
-
-	for skupc, locs := range items {
+	for skupc, locs := range skuresp.Items {
 		w1, w2 := locsAndExterns(locs)
 
 		if w2 < 1 {
