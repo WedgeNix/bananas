@@ -385,7 +385,7 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 	// 	}
 	// }
 	skuresp := j.sc.Inventory.GetInventoryByLocation(&inventory.GetInventoryByLocation{
-		ProductSKUs: skupcs,
+		ProductSKUs: toSet(skupcs),
 		// ProductCodes: upcs,
 	})
 	for _, err := range skuresp.Errors {
@@ -426,6 +426,18 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 	}
 
 	return nil
+}
+
+func toSet(skus []string) []string {
+	m := make(map[string]interface{})
+	for _, sku := range skus {
+		m[sku] = nil
+	}
+	var s []string
+	for sku := range m {
+		s = append(s, sku)
+	}
+	return s
 }
 
 func (b bananas) clean() {
