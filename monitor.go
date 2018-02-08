@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"regexp"
 	"sync"
 	"time"
 
@@ -145,9 +146,9 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKUPC
 				}
 
 				skupc := itm.SKU
-				if v.settings[vend].UseUPC {
-					skupc = itm.UPC
-				}
+				// if v.settings[vend].UseUPC {
+				// 	skupc = itm.UPC
+				// }
 
 				// if monitor SKU doesn't exist then throw its SKU into
 				// the payload for populating later
@@ -343,6 +344,12 @@ func (j *jit) monToSKUPCs(poDay bool) ([]string, error) {
 	}
 
 	return skupcs, nil
+}
+
+// isUPC could be used in the future to determine whether something
+// is a UPC or not.
+func isUPC(s string) bool {
+	return regexp.MustCompile(`[0-9]{12,13}`).MatchString(s)
 }
 
 func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {

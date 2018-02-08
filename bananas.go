@@ -99,8 +99,14 @@ func Run() []error {
 
 	filteredPay, upc, errc := v.filterDropShipment(pay, rdc)
 	if !dontEmailButCreateOrders {
-		if err = <-errc; err != nil {
-			return v.err(err)
+		// 1 updateAWS
+		// 2 updateNewSKUPCs
+		// 3 prepareMonMail
+		for i := range [3]byte{} {
+			util.Log(itoa(i+1) + "/3 errc")
+			if err := <-errc; err != nil {
+				return v.err(err)
+			}
 		}
 	}
 

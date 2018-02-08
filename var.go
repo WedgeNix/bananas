@@ -6,6 +6,8 @@ import (
 )
 
 var (
+	itoa = strconv.Itoa
+
 	// shipKey holds the API key for accessing ShipStation.
 	shipKey string
 
@@ -28,5 +30,4 @@ var (
 	dontEmailButCreateOrders bool
 
 	la, _ = time.LoadLocation("America/Los_Angeles")
-	itoa  = strconv.Itoa
 )
