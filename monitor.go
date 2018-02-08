@@ -545,7 +545,7 @@ func (j *jit) order(v *Vars) []error {
 		useUPC := v.settings[vend].UseUPC
 		for _, ban := range j.bans[vend] { // monitor-only bananas
 			skupc := ban.SKUPC
-			if useUPC { // the whole design of monitor uses sku until now
+			if useUPC && !isUPC(skupc) {
 				skupc = j.sku2upc[skupc]
 			}
 			sum[skupc] += ban.Quantity
