@@ -34,7 +34,6 @@ type jit struct {
 	soldToday map[string]bool
 	bans      bananas
 	hybrids   chan bananas
-	sku2upc   map[string]string
 }
 
 // create a new just-in-time handler
@@ -51,7 +50,6 @@ func newJIT() (<-chan jit, <-chan error) {
 			monDir:  dir.BananasMon{},
 			bans:    bananas{},
 			hybrids: make(chan bananas, 1),
-			sku2upc: make(map[string]string),
 		}
 
 		ac, err := awsapi.New()
@@ -141,10 +139,6 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKUPC
 				// 	return
 				// }
 
-				if v.settings[vend].UseUPC {
-					j.sku2upc[itm.SKU] = itm.UPC
-				}
-
 				// determine existence of vendor monitor file
 				vendMon, exists := j.monDir[vend]
 				if !exists {
@@ -164,6 +158,7 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKUPC
 					util.Log(`'` + skupc + `' found!`)
 					skupcc <- newSKUPC(skupc)
 				}
+				monSKU.UPC = itm.UPC
 				monSKU.Sold += itm.Quantity
 
 				j.soldToday[skupc] = true
@@ -565,7 +560,11 @@ func (j *jit) order(v *Vars) []error {
 		for _, ban := range j.bans[vend] { // monitor-only bananas
 			skupc := ban.SKUPC
 			if useUPC && !isUPC(skupc) {
-				skupc = j.sku2upc[skupc]
+				upc, err := j.sku2upc(skupc)
+				if err != nil {
+					return []error{err}
+				}
+				skupc = upc
 			}
 			sum[skupc] += ban.Quantity
 		}
@@ -612,6 +611,17 @@ func (j *jit) order(v *Vars) []error {
 		mailerrs = nil
 	}
 	return mailerrs
+}
+
+func (j *jit) sku2upc(sku string) (string, error) {
+	for _, mon := range j.monDir {
+		for msku, monSKUPC := range mon.SKUs {
+			if sku == msku {
+				return monSKUPC.UPC, nil
+			}
+		}
+	}
+	return "", errors.New("UPC not found for SKU '" + sku + "'")
 }
 
 // record all or no changes made to the monitor directory asynchronously
