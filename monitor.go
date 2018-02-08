@@ -134,6 +134,13 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKUPC
 					continue
 				}
 
+				if isUPC(itm.SKU) {
+					msg := "SKU '" + itm.SKU + "' is identified as a UPC"
+					errc <- util.NewErr(msg)
+					fmt.Println(msg)
+					return
+				}
+
 				if v.settings[vend].UseUPC {
 					j.sku2upc[itm.SKU] = itm.UPC
 				}
