@@ -234,8 +234,8 @@ func (j *jit) updateNewSKUPCs(skupcc <-chan newSKUPC, v *Vars, ords []order) (<-
 		for _, prod := range resp.Products {
 			for _, ord := range ords {
 				for _, itm := range ord.Items {
-					if len(itm.SKU) > 0 && len(prod.Sku) > 0 && itm.SKU != prod.Sku || // SKU
-						len(itm.UPC) > 0 && len(prod.Code) > 0 && itm.UPC != prod.Code { // UPC
+					if len(itm.SKU) > 0 && len(prod.Sku) > 0 && itm.SKU != prod.Sku { //|| // SKU
+						//len(itm.UPC) > 0 && len(prod.Code) > 0 && itm.UPC != prod.Code { // UPC
 						continue
 					}
 
@@ -376,17 +376,17 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 		return nil
 	}
 
-	var skus, upcs []string
-	for _, skupc := range skupcs {
-		if isUPC(skupc) {
-			upcs = append(upcs, skupc)
-		} else {
-			skus = append(skus, skupc)
-		}
-	}
+	// var skus, upcs []string
+	// for _, skupc := range skupcs {
+	// 	if isUPC(skupc) {
+	// 		upcs = append(upcs, skupc)
+	// 	} else {
+	// 		skus = append(skus, skupc)
+	// 	}
+	// }
 	skuresp := j.sc.Inventory.GetInventoryByLocation(&inventory.GetInventoryByLocation{
-		ProductSKUs:  skus,
-		ProductCodes: upcs,
+		ProductSKUs: skupcs,
+		// ProductCodes: upcs,
 	})
 	for _, err := range skuresp.Errors {
 		return fmt.Errorf("GetInventoryByLocation: %s", err)
