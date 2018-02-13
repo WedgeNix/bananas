@@ -39,7 +39,7 @@ OrderLoop:
 		items := ord.Items
 		ord.Items = []item{}
 		for _, itm := range items {
-			w2 := v.hasVendor.MatchString(itm.WarehouseLocation)
+			w2 := itm.WarehouseLocation.W2() // v.hasVendor.MatchString(itm.WarehouseLocation)
 			mon, _ := v.isMonAndVend(itm)
 			if !(w2 || mon) {
 				continue

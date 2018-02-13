@@ -219,7 +219,7 @@ func (i item) grade(v *Vars) (float64, error) {
 	}
 	onHand, exists := v.inWarehouse[skupc]
 	if !exists {
-		onHand, err = v.quantities(i.WarehouseLocation)
+		onHand, err = i.WarehouseLocation.Local() //v.quantities(i.WarehouseLocation)
 		if err != nil {
 			return 0, util.Err(err)
 		}
