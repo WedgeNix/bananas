@@ -248,11 +248,11 @@ func (j *jit) updateNewSKUPCs(skupcc <-chan newSKUPC, v *Vars, ords []order) (<-
 						return
 					}
 					monDir := j.monDir[v.getVend(itm)]
-					monSKUPC := monDir.SKUs[skupc]
+					monSKU := monDir.SKUs[skupc]
 					// daysOld := int(j.utc.Sub(prod.CreatedDateUtc).Hours()/24 + 0.5)
-					// monSKUPC.ProbationPeriod = min(8100/daysOld, 90)
-					monSKUPC.LastUTC = prod.CreatedDateUtc
-					monDir.SKUs[skupc] = monSKUPC
+					// monSKU.ProbationPeriod = min(8100/daysOld, 90)
+					monSKU.LastUTC = prod.CreatedDateUtc
+					monDir.SKUs[skupc] = monSKU
 
 					// actually overwrite the empty monitor SKU
 					j.monDir[v.getVend(itm)] = monDir
@@ -285,11 +285,11 @@ func locsAndExterns(locs []inventory.SkuLocations) (w1 int, w2 int) {
 
 func (j *jit) vendAvgWaitMonSKUPC(skupc string) (string, float64, types.BananasMonSKU, error) {
 	for vend, mon := range j.monDir {
-		for mskupc, monSKUPC := range mon.SKUs {
+		for mskupc, monSKU := range mon.SKUs {
 			if skupc != mskupc {
 				continue
 			}
-			return vend, mon.AvgWait, monSKUPC, nil
+			return vend, mon.AvgWait, monSKU, nil
 		}
 	}
 	return "", 0, types.BananasMonSKU{}, errors.New("skuToMonVend: can't find sku in monitor directory")
@@ -305,36 +305,36 @@ func (j *jit) monToSKUPCs(poDay bool) ([]string, error) {
 			_, soldToday := j.soldToday[sku]
 			expired := daysOld > monSKU.ProbationPeriod
 
-			if soldToday && monSKUPC.Days > 0 {
-				monSKUPC.Days += daysOld
-				monSKUPC.LastUTC = j.utc
+			if soldToday && monSKU.Days > 0 {
+				monSKU.Days += daysOld
+				monSKU.LastUTC = j.utc
 			} else if soldToday {
-				monSKUPC.Days = 1
-				monSKUPC.LastUTC = j.utc
+				monSKU.Days = 1
+				monSKU.LastUTC = j.utc
 				expired = false
 			}
 			if soldToday {
-				monSKUPC.ProbationPeriod = min(8100/daysOld, 90)
+				monSKU.ProbationPeriod = min(8100/daysOld, 90)
 			}
 
 			// save the monitor SKU after days was changed
-			mon.SKUs[skupc] = monSKUPC
+			mon.SKUs[sku] = monSKU
 
 			if expired {
-				delete(mon.SKUs, skupc)
+				delete(mon.SKUs, sku)
 				continue
 			}
 			if !poDay {
 				continue
 			}
-			if !monSKUPC.Pending.IsZero() {
+			if !monSKU.Pending.IsZero() {
 				continue
 			}
-			if monSKUPC.ProbationPeriod < 90 {
+			if monSKU.ProbationPeriod < 90 {
 				continue
 			}
 
-			skupcs = append(skupcs, skupc)
+			skupcs = append(skupcs, sku)
 		}
 
 		// save monitor file
@@ -401,19 +401,19 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 			continue
 		}
 
-		vend, avgWait, monSKUPC, err := j.vendAvgWaitMonSKUPC(skupc)
+		vend, avgWait, monSKU, err := j.vendAvgWaitMonSKUPC(skupc)
 		if err != nil {
 			return err
 		}
 
-		daysOld := int(j.utc.Sub(monSKUPC.LastUTC).Hours()/24 + 0.5)
-		monSKUPC.Days += daysOld
+		daysOld := int(j.utc.Sub(monSKU.LastUTC).Hours()/24 + 0.5)
+		monSKU.Days += daysOld
 
-		f := float64(monSKUPC.Sold) / float64(monSKUPC.Days)
+		f := float64(monSKU.Sold) / float64(monSKU.Days)
 		rp := (avgWait + float64(v.settings[vend].ReordPtAdd)) * f
-		rtrdr := math.Min(float64(monSKUPC.Days)/float64(j.cfgFile.OrdXDaysWorth), 1)
+		rtrdr := math.Min(float64(monSKU.Days)/float64(j.cfgFile.OrdXDaysWorth), 1)
 
-		if w1 > 0 && rtrdr < 1 && monSKUPC.Sold == 1 {
+		if w1 > 0 && rtrdr < 1 && monSKU.Sold == 1 {
 			continue
 		}
 
@@ -615,9 +615,9 @@ func (j *jit) order(v *Vars) []error {
 
 func (j *jit) sku2upc(sku string) (string, error) {
 	for _, mon := range j.monDir {
-		for msku, monSKUPC := range mon.SKUs {
+		for msku, monSKU := range mon.SKUs {
 			if sku == msku {
-				return monSKUPC.UPC, nil
+				return monSKU.UPC, nil
 			}
 		}
 	}
@@ -651,12 +651,12 @@ func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
 		// MIGHT BE REDUNDANT
 		for skupc := range j.soldToday {
 			for vend, mon := range j.monDir {
-				monSKUPC, exists := mon.SKUs[skupc]
+				monSKU, exists := mon.SKUs[skupc]
 				if !exists {
 					continue
 				}
-				monSKUPC.LastUTC = j.utc
-				mon.SKUs[skupc] = monSKUPC
+				monSKU.LastUTC = j.utc
+				mon.SKUs[skupc] = monSKU
 				j.monDir[vend] = mon
 				break
 			}
