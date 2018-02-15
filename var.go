@@ -1,10 +1,6 @@
 package bananas
 
-import "strconv"
-
 var (
-	itoa = strconv.Itoa
-
 	// shipKey holds the API key for accessing ShipStation.
 	shipKey string
 
