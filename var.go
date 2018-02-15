@@ -1,9 +1,6 @@
 package bananas
 
-import (
-	"strconv"
-	"time"
-)
+import "strconv"
 
 var (
 	itoa = strconv.Itoa
@@ -28,6 +25,4 @@ var (
 	hit                      bool
 	paperless                bool
 	dontEmailButCreateOrders bool
-
-	la, _ = time.LoadLocation("America/Los_Angeles")
 )

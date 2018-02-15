@@ -53,30 +53,34 @@ func (v *Vars) order(b bananas, whouse Warehouse) (taggableBananas, []error) {
 		if set.Monitor && !set.Hybrid {
 			continue
 		}
-		if set.Hybrid {
-			// if B, exists := b[V]; exists {
-			// 	hyBans[V] = B
-			// }
-			hyBans[V] = b[V] // toss empties in as well
-			continue
-		}
 
-		B, exists := b[V]
+		vend := V // new "variables" for closure
+		bun, exists := b[vend]
 		if !exists {
 			util.Log("send empty email (drop ship)")
 		}
 
-		vend, bun := V, B // new "variables" for closure
-
 		util.Log("<<< Removing SKUs from order we have enough of locally >>>")
 		var newbun bunch
 		for _, ban := range bun {
-			if dQt := ban.Quantity - whouse[ban.SKUPC]; dQt > 0 {
-				ban.Quantity = dQt
+			if buyDiff := ban.Quantity - whouse[ban.SKUPC]; buyDiff > 0 {
+				ban.Quantity = buyDiff
 				newbun = append(newbun, ban)
+			} else {
+				delete(whouse, ban.SKUPC)
 			}
 		}
 		bun = newbun
+
+		if set.Hybrid {
+			// if B, exists := b[V]; exists {
+			// 	hyBans[V] = B
+			// }
+			hyBans[V] = bun // toss empties in as well
+			continue
+		}
+
+		// util.Log(vend + " ORDER:\n" + bun.String())
 
 		emailing.Add(1)
 		go func() {

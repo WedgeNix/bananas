@@ -6,7 +6,6 @@ const (
 	ignoreCF1  = false
 	monitoring = true
 
-	shipURL   = "https://ssapi.shipstation.com/"
-	ssDateFmt = "2006-01-02 15:04:05"
-	poFormat  = "20060102"
+	// shipURL is the http location for API calls.
+	shipURL = "https://ssapi.shipstation.com/"
 )

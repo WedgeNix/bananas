@@ -1,19 +1,14 @@
 package bananas
 
 import (
-	"encoding/json"
 	"errors"
-	"net/url"
-	"strings"
-	"time"
+	"io/ioutil"
 
 	"github.com/WedgeNix/util"
 )
 
 func (v *Vars) tagAndUpdate(b taggableBananas) error {
-	tagCnt := len(v.taggables)
-
-	util.Log("TAGGABLE_COUNT: ", tagCnt)
+	util.Log("TAGGABLE_COUNT: ", len(v.taggables))
 
 	for _, origOrd := range v.original {
 		for i, tagOrd := range v.taggables {
@@ -40,56 +35,26 @@ func (v *Vars) tagAndUpdate(b taggableBananas) error {
 		}
 	}
 
-	if sandbox || tagCnt == 0 {
-		return nil
-	}
-
-	start, errs := time.Now().In(la), []error{}
-	for i := 0; i < tagCnt; {
-		nexti := min(i+100, tagCnt)
-		rng := itoa(i+1) + "~" + itoa(nexti) + " / " + itoa(tagCnt)
-
-		util.Log("/createorders... " + rng)
-		resp, err := v.login.Post(shipURL+`orders/createorders`, v.taggables[i:nexti])
-		util.Log("/createorders!   " + rng)
-
-		i = nexti
-		if err != nil || resp.StatusCode >= 300 {
-			errs = append(errs, err)
-		}
-	}
-	if len(errs) > 0 { // errors happened; double-check ShipStation
-		return checkPO(v.login, start, tagCnt)
-	}
-	return nil
-}
-
-// checkPO checks ShipStation for all modified orders after
-// the start time, counting how many have custom field-1
-// set to the po-date of the start time.
-func checkPO(login util.HTTPLogin, start time.Time, tagged int) error {
-	pay := payload{Page: 1, Pages: 2}
-	matches := 0
-	for ; pay.Page < pay.Pages; pay.Page++ {
-		query := make(url.Values)
-		query.Set("modifyDateStart", start.Format(ssDateFmt))
-		query.Set("page", itoa(pay.Page))
-		resp, err := login.Get(shipURL + `orders?` + query.Encode())
-		if err != nil {
-			return err
-		}
-		defer resp.Body.Close()
-		if err = json.NewDecoder(resp.Body).Decode(&pay); err != nil {
-			return err
-		}
-		for _, ord := range pay.Orders {
-			if strings.Contains(ord.AdvancedOptions.CustomField1, start.Format(poFormat)) {
-				matches++
+	if L, step := len(v.taggables), 100; !sandbox && L > 0 {
+		for i := 0; i < L; i += step {
+			resp, err := v.login.Post(shipURL+`orders/createorders`, v.taggables[i:min(i+step, L)])
+			if err != nil {
+				return err
 			}
+			if resp.StatusCode >= 300 {
+				return errors.New(resp.Status)
+			}
+			b, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				return err
+			}
+			util.Log("CREATEORDERS_RESP: ", string(b))
 		}
 	}
-	if matches < tagged {
-		return errors.New("not all orders tagged")
+
+	if sandbox {
+		// util.Log("NEW_TAGGABLES: ", v.taggables)
 	}
+
 	return nil
 }

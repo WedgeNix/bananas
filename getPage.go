@@ -12,9 +12,9 @@ import (
 
 func (v *Vars) getPage(page int, pay *payload, a, b time.Time) (int, int, error) {
 	query := url.Values(map[string][]string{})
-	query.Set(`page`, itoa(page))
-	query.Set(`createDateStart`, a.Format(ssDateFmt))
-	query.Set(`createDateEnd`, b.Format(ssDateFmt))
+	query.Set(`page`, strconv.Itoa(page))
+	query.Set(`createDateStart`, a.Format("2006-01-02 15:04:05"))
+	query.Set(`createDateEnd`, b.Format("2006-01-02 15:04:05"))
 	query.Set(`pageSize`, `500`)
 
 	resp, err := v.login.Get(shipURL + `orders?` + query.Encode())
