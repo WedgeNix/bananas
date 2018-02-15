@@ -1,5 +1,10 @@
 package bananas
 
+import (
+	"strconv"
+	"time"
+)
+
 var (
 	// shipKey holds the API key for accessing ShipStation.
 	shipKey string
@@ -21,4 +26,7 @@ var (
 	hit                      bool
 	paperless                bool
 	dontEmailButCreateOrders bool
+
+	la, _ = time.LoadLocation("America/Los_Angeles")
+	itoa  = strconv.Itoa
 )

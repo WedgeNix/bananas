@@ -188,7 +188,7 @@ func (b bunch) csv(name string) (wedgemail.Attachment, error) {
 		return att, err
 	}
 	for _, banana := range b {
-		if err := csv.Write([]string{banana.SKUPC, strconv.Itoa(banana.Quantity)}); err != nil {
+		if err := csv.Write([]string{banana.SKUPC, itoa(banana.Quantity)}); err != nil {
 			return att, err
 		}
 	}
@@ -219,7 +219,7 @@ func (i item) grade(v *Vars) (float64, error) {
 	}
 	onHand, exists := v.inWarehouse[skupc]
 	if !exists {
-		onHand, err = i.WarehouseLocation.Local() //v.quantities(i.WarehouseLocation)
+		onHand, err = v.quantities(i.WarehouseLocation)
 		if err != nil {
 			return 0, util.Err(err)
 		}

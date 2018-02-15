@@ -39,7 +39,7 @@ OrderLoop:
 		items := ord.Items
 		ord.Items = []item{}
 		for _, itm := range items {
-			w2 := itm.WarehouseLocation.W2() // v.hasVendor.MatchString(itm.WarehouseLocation)
+			w2 := v.hasVendor.MatchString(itm.WarehouseLocation)
 			mon, _ := v.isMonAndVend(itm)
 			if !(w2 || mon) {
 				continue
@@ -63,7 +63,7 @@ OrderLoop:
 		v.rdOrdWg.Add(2)
 
 		skuc, errca := v.j.updateAWS(rdc, v, ords)
-		upc, errcb = v.j.updateNewSKUPCs(skuc, v, ords)
+		upc, errcb = v.j.updateNewSKUs(skuc, v, ords)
 		if err := v.j.prepareMonMail(upc, v); err != nil {
 			util.Log(err)
 			errcc <- err
@@ -96,9 +96,8 @@ OrderLoop:
 	}
 	newFiltPay := filteredPayload(payload{Orders: dsOrds})
 
-	errsc := util.MergeErr(errca, errcb, errcc)
-	if dontEmailButCreateOrders {
-		return newFiltPay, nil, errsc
+	if !dontEmailButCreateOrders {
+		return newFiltPay, upc, util.MergeErr(errca, errcb, errcc)
 	}
-	return newFiltPay, upc, errsc
+	return newFiltPay, nil, nil
 }

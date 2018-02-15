@@ -11,9 +11,10 @@ import (
 	wedgemail "github.com/WedgeNix/wedgeMail"
 )
 
-func (v *Vars) order(b bananas, whouse Warehouse) (taggableBananas, []error) {
+func (v *Vars) order(b bananas) (taggableBananas, []error) {
 
 	util.Log("removing monitors from drop ship emails")
+
 	for vend, set := range v.settings {
 		if set.Monitor && !set.Hybrid {
 			delete(b, vend)
@@ -21,6 +22,7 @@ func (v *Vars) order(b bananas, whouse Warehouse) (taggableBananas, []error) {
 	}
 
 	util.Log("parse HTML template")
+
 	tmpl, err := template.ParseFiles("vendor-email-tmpl.html")
 	if err != nil {
 		return nil, []error{util.Err(err)}
@@ -53,34 +55,20 @@ func (v *Vars) order(b bananas, whouse Warehouse) (taggableBananas, []error) {
 		if set.Monitor && !set.Hybrid {
 			continue
 		}
-
-		vend := V // new "variables" for closure
-		bun, exists := b[vend]
-		if !exists {
-			util.Log("send empty email (drop ship)")
-		}
-
-		util.Log("<<< Removing SKUs from order we have enough of locally >>>")
-		var newbun bunch
-		for _, ban := range bun {
-			if buyDiff := ban.Quantity - whouse[ban.SKUPC]; buyDiff > 0 {
-				ban.Quantity = buyDiff
-				newbun = append(newbun, ban)
-			} else {
-				delete(whouse, ban.SKUPC)
-			}
-		}
-		bun = newbun
-
 		if set.Hybrid {
 			// if B, exists := b[V]; exists {
 			// 	hyBans[V] = B
 			// }
-			hyBans[V] = bun // toss empties in as well
+			hyBans[V] = b[V] // toss empties in as well
 			continue
 		}
 
-		// util.Log(vend + " ORDER:\n" + bun.String())
+		B, exists := b[V]
+		if !exists {
+			util.Log("send empty email (drop ship)")
+		}
+
+		vendor, bunch := V, B // new "variables" for closure
 
 		emailing.Add(1)
 		go func() {
@@ -90,31 +78,31 @@ func (v *Vars) order(b bananas, whouse Warehouse) (taggableBananas, []error) {
 			util.Log("goroutine is starting to email a drop ship vendor")
 
 			t := util.LANow()
-			po := v.settings[vend].PONum + "-" + t.Format("20060102")
+			po := v.settings[vendor].PONum + "-" + t.Format("20060102")
 
 			inj := injection{
-				Vendor: vend,
+				Vendor: vendor,
 				Date:   t.Format("01/02/2006"),
 				PO:     po,
-				Bunch:  bun,
+				Bunch:  bunch,
 			}
 
 			buf := &bytes.Buffer{}
 			err := tmpl.Execute(buf, inj)
 			if err != nil {
-				util.Log(vend, " ==> ", bun)
+				util.Log(vendor, " ==> ", bunch)
 				mailerrc <- err
 				return
 			}
 
 			to := []string{appUser}
 			if !sandbox {
-				to = append(v.settings[vend].Email, to...)
+				to = append(v.settings[vendor].Email, to...)
 			}
 
 			var att wedgemail.Attachment
-			if v.settings[vend].FileDownload && len(bun) > 0 {
-				att, err = bun.csv(po + ".csv")
+			if v.settings[vendor].FileDownload && len(bunch) > 0 {
+				att, err = bunch.csv(po + ".csv")
 				if err != nil {
 					mailerrc <- err
 				}
@@ -124,7 +112,7 @@ func (v *Vars) order(b bananas, whouse Warehouse) (taggableBananas, []error) {
 				email := buf.String()
 				err := login.Email(to, "WedgeNix PO#: "+po, email, att)
 				if err != nil {
-					mailerrc <- errors.New("error in emailing " + vend)
+					mailerrc <- errors.New("error in emailing " + vendor)
 				}
 			}
 		}()
@@ -138,6 +126,7 @@ func (v *Vars) order(b bananas, whouse Warehouse) (taggableBananas, []error) {
 	util.Log("Drop ship: wait for goroutines to finish emailing")
 	emailing.Wait()
 	util.Log("Drop ship: Emailing round-trip: ", time.Since(start))
+	// login.Stop()
 
 	close(mailerrc)
 

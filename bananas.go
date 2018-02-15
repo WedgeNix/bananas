@@ -27,7 +27,8 @@ func RunPaperless() []error {
 // Run initializes all package-level variables.
 func Run() []error {
 	if hit && !paperless {
-		return []error{util.NewErr("bananas already hit; we don't want to re-email everyone")}
+		util.Log("bananas already hit; we don't want to re-email everyone")
+		return []error{nil}
 	}
 
 	// pull environmental variables
@@ -63,6 +64,7 @@ func Run() []error {
 	}
 
 	util.Log("reading from AWS")
+
 	j := <-jc
 	rdc, errc := j.readAWS()
 	if err := <-errc; err != nil {
@@ -86,6 +88,7 @@ func Run() []error {
 	}
 
 	util.Log("get orders that are awaiting shipment")
+
 	pay, err := v.getOrdersAwaitingShipment()
 	if err != nil {
 		return v.err(err)
@@ -93,33 +96,24 @@ func Run() []error {
 	v.original = pay.preserveItems()
 
 	util.Log("filter the orders for drop ship only (except monitors)")
+
 	filteredPay, upc, errc := v.filterDropShipment(pay, rdc)
+	if !dontEmailButCreateOrders {
+		if err = <-errc; err != nil {
+			return v.err(err)
+		}
+	}
 
 	util.Log("arrange the orders based on time-preference grading")
+
 	arrangedPay, errs := v.arrangeOrders(filteredPay)
 	v.err(errs...)
 
 	util.Log("convert to stateful for in-order item quantities")
+
 	bans, err := v.statefulConversion(arrangedPay)
 	if err != nil {
 		return v.err(err)
-	}
-
-	util.Log("place higher needed quantities on top for emails")
-	sortedBans := bans.sort().print()
-
-	whouse := ParseWarehouse(payload(arrangedPay))
-
-	if !dontEmailButCreateOrders {
-		// 1 updateAWS
-		// 2 updateNewSKUPCs
-		// 3 prepareMonMail
-		// for i := range [3]byte{} {
-		// 	util.Log(itoa(i+1) + "/3 errc")
-			if err := <-errc; err != nil {
-				return v.err(err)
-			}
-		// }
 	}
 
 	//
@@ -127,11 +121,17 @@ func Run() []error {
 	// ||||||||
 	// vvvvvvvv
 
+	util.Log("place higher needed quantities on top for emails")
+
+	sortedBans := bans.sort().print()
+
 	util.Log("email the respective orders")
-	taggableBans, errs := v.order(sortedBans, whouse)
+
+	taggableBans, errs := v.order(sortedBans)
 	v.err(errs...)
 
 	util.Log("tag the orders on ShipStation")
+
 	err = v.tagAndUpdate(taggableBans)
 	v.err(err)
 

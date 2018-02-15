@@ -96,7 +96,7 @@ type item struct {
 	UnitPrice         float32
 	TaxAmount         float32
 	ShippingAmount    float32
-	WarehouseLocation WarehouseLocation
+	WarehouseLocation string
 	Options           interface{}
 	ProductID         int
 	FulfillmentSKU    string
