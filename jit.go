@@ -134,6 +134,7 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 				// determine existence of vendor monitor file
 				vendMon, exists := j.monDir[vend]
 				if !exists {
+					util.Log(`new monitor vendor '` + vend + `' discovered!`)
 					vendMon.AvgWait = 5
 					vendMon.SKUs = types.SKUs{}
 				}
@@ -142,10 +143,11 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 				// the payload for populating later
 				monSKU, exists := vendMon.SKUs[itm.SKU]
 				if !exists {
-					util.Log(`'` + itm.SKU + `' found!`)
+					util.Log(`new monitor sku '` + itm.SKU + `' discovered!`)
 					skuc <- newSKU(itm.SKU)
 				}
 				monSKU.Sold += itm.Quantity
+				monSKU.UPC = itm.UPC
 
 				j.soldToday[itm.SKU] = true
 
@@ -499,6 +501,13 @@ func (j *jit) order(v *Vars) []error {
 			sum[ban.SKUPC] += ban.Quantity
 		}
 		for _, ban := range j.bans[vend] {
+			if v.settings[vend].UseUPC {
+				if upc, err := j.sku2upc(ban.SKUPC, vend); err != nil {
+					util.Log(err.Error() + "; using sku (unfortunately)")
+				} else {
+					ban.SKUPC = upc
+				}
+			}
 			sum[ban.SKUPC] += ban.Quantity
 		}
 		j.bans[vend] = nil
@@ -544,6 +553,25 @@ func (j *jit) order(v *Vars) []error {
 		mailerrs = nil
 	}
 	return mailerrs
+}
+
+func (j *jit) sku2upc(sku, vend string) (upc string, err error) {
+	monVend, found := j.monDir[vend]
+	if !found {
+		err = errors.New("vendor '" + vend + "' not found")
+		return
+	}
+	monSKU, found := monVend.SKUs[sku]
+	if !found {
+		err = errors.New("sku '" + sku + "' not found for '" + vend + "'")
+		return
+	}
+	if len(monSKU.UPC) == 0 {
+		err = errors.New("no upc found for sku '" + sku + "'")
+		return
+	}
+	upc = monSKU.UPC
+	return
 }
 
 // record all or no changes made to the monitor directory asynchronously
