@@ -3,6 +3,7 @@ package bananas
 import (
 	"regexp"
 
+	"github.com/WedgeNix/bananas/ship"
 	"github.com/WedgeNix/util"
 	"github.com/WedgeNix/warehouse-settings"
 
@@ -35,20 +36,21 @@ func Run() []error {
 	shipKey = os.Getenv("SHIP_API_KEY")
 	shipSecret = os.Getenv("SHIP_API_SECRET")
 	settingsURL = os.Getenv("SETTINGS_URL")
-	comEmailUser = os.Getenv("COM_EMAIL_USER")
-	comEmailPass = os.Getenv("COM_EMAIL_PASS")
-	comEmailSMTP = os.Getenv("COM_EMAIL_SMTP")
+	// comEmailUser = os.Getenv("COM_EMAIL_USER")
+	// comEmailPass = os.Getenv("COM_EMAIL_PASS")
+	// comEmailSMTP = os.Getenv("COM_EMAIL_SMTP")
 	appUser = os.Getenv("APP_EMAIL_USER")
 	appPass = os.Getenv("APP_EMAIL_PASS")
 
 	util.Log("grab vendor settings for bananas")
 
-	wc := wedgenix.New()
 	sets := app.Bananas{}
-	wc.Do(&sets)
-	if len(sets) < 1 {
-		return []error{util.NewErr("empty settings response")}
+	if err := wedgenix.Settings(&sets); err != nil {
+		return []error{err}
 	}
+	// if len(sets) < 1 {
+	// 	return []error{util.NewErr("empty settings response")}
+	// }
 
 	// printJSON(sets)
 
@@ -81,9 +83,9 @@ func Run() []error {
 		quantity:    regexp.MustCompile(`[0-9]+(?:\))`),
 		number:      regexp.MustCompile(`[0-9]+`),
 		inWarehouse: map[string]int{},
-		broken:      map[int]bool{},
+		toBeTagged:  map[int]bool{},
 		vendors:     map[string]string{},
-		taggables:   []order{},
+		taggables:   []ship.Order{},
 		errs:        []error{},
 	}
 
@@ -103,31 +105,73 @@ func Run() []error {
 			return v.err(err)
 		}
 	}
+	// dsOrds := filteredPay.Orders
+
+	// onHand := make(whs.Warehouse)
+	// for _, ord := range dsOrds {
+	// 	for _, itm := range ord.Items {
+	// 		skupc, err := itm.SKUPC()
+	// 		if err != nil {
+	// 			return []error{err}
+	// 		}
+	// 		onHand[skupc] = itm.OnHand()
+	// 	}
+	// }
+	// v.onHand = onHand
 
 	util.Log("arrange the orders based on time-preference grading")
 
 	arrangedPay, errs := v.arrangeOrders(filteredPay)
 	v.err(errs...)
+	log(v.inWarehouse, "^^^ inWarehouse (on hand currently)")
 
-	util.Log("convert to stateful for in-order item quantities")
+	util.Log("convert to stateful for in-order ship.Item quantities")
 
 	bans, err := v.statefulConversion(arrangedPay)
 	if err != nil {
 		return v.err(err)
 	}
 
+	util.Log("place higher needed quantities on top for emails")
+
+	// sortedBans := bans.sort().print()
+	// sortedBans := bans.sort().print()
+	// sortedBans := bans.sort().print()
+
+	// bought, err := ship.AllBought(ords)
+	// if err != nil {
+	// 	return []error{err}
+	// }
+
+	// log(bought, "^^^ bought since last hit")
+	// log()
+
+	// w1, err := ship.AllW1(ords)
+	// if err != nil {
+	// 	return []error{err}
+	// }
+
+	// log(w1, "^^^ on hand (w1)")
+	// log()
+
+	// toBuy, err := ship.AllToBuy(w1, ords)
+	// if err != nil {
+	// 	return []error{err}
+	// }
+
+	// log(toBuy, "^^^ sku/upc(s) to order from vendors")
+	// log()
+
+	// bans := make(bananas)
+
 	//
 	// Honestly stateful stuff (real world)
 	// ||||||||
 	// vvvvvvvv
 
-	util.Log("place higher needed quantities on top for emails")
-
-	sortedBans := bans.sort().print()
-
 	util.Log("email the respective orders")
 
-	taggableBans, errs := v.order(sortedBans)
+	taggableBans, errs := v.emailOrders(bans)
 	v.err(errs...)
 
 	util.Log("tag the orders on ShipStation")

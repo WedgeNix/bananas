@@ -34,12 +34,14 @@
                 <h4>Thank you,</h4>
         <table>
             <tr>
-                <td class="title">Product ID</td>
+                <td class="title">SKU</td>
+                <td class="title">UPC</td>
                 <td class="title">Quantity</td>
             </tr>
             {{range .Bunch}}
             <tr>
-                <td class="detail">{{.SKUPC}}</td>
+                <td class="detail">{{.SKU}}</td>
+                <td class="detail">{{.UPC}}</td>
                 <td class="detail">{{.Quantity}}</td>
             </tr>
             {{end}}

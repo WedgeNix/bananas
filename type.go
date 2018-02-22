@@ -4,6 +4,9 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/WedgeNix/bananas/ship"
+	"github.com/WedgeNix/bananas/skc"
+	"github.com/WedgeNix/bananas/whs"
 	"github.com/WedgeNix/util"
 	"github.com/WedgeNix/warehouse-settings/app"
 )
@@ -24,7 +27,9 @@ type Vars struct {
 
 	login util.HTTPLogin
 
-	// hasVendor checks a warehouse location string to see if the item exists in quantity on their end.
+	onHand whs.Warehouse
+
+	// hasVendor checks a warehouse location string to see if the ship.Item exists in quantity on their end.
 	hasVendor *regexp.Regexp
 	// vendorOnly picks out vendor-only warehouse locations with quantities.
 	// vendorOnly *regexp.Regexp
@@ -39,15 +44,15 @@ type Vars struct {
 	inWarehouse map[string]int
 
 	// broken tracks orders needing complete order requests.
-	broken map[int]bool
+	toBeTagged map[int]bool
 
 	// vendors holds an instant mapping of warehouse locations to vendor names.
 	vendors map[string]string
 
 	// taggables
-	taggables []order
+	taggables []ship.Order
 
-	original []order
+	original []ship.Order
 
 	rdOrdWg sync.WaitGroup
 
@@ -57,7 +62,7 @@ type Vars struct {
 
 // Payload is the first level of a ShipStation HTTP response body.
 type payload struct {
-	Orders []order
+	Orders []ship.Order
 	Total  int
 	Page   int
 	Pages  int
@@ -71,7 +76,7 @@ type arrangedPayload payload
 
 // Banana is a single order to be requested for a vendor.
 type banana struct {
-	SKUPC    string
+	skc.SKUPC
 	Quantity int
 }
 

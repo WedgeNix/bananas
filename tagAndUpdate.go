@@ -23,13 +23,13 @@ func (v *Vars) tagAndUpdate(b taggableBananas) error {
 
 			var vSlice []string
 			var upcSlice []string
-			for _, item := range tagOrd.Items {
-				poNum, err := v.poNum(&item, util.LANow())
+			for _, itm := range tagOrd.Items {
+				poNum, err := v.poNum(&itm, util.LANow())
 				if err != nil {
 					return err
 				}
 				vSlice = append(vSlice, poNum)
-				upcSlice = append(upcSlice, item.UPC)
+				upcSlice = append(upcSlice, itm.UPC)
 			}
 			vList := onlyUnique(vSlice)
 			upcList := onlyUnique(upcSlice)

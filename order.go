@@ -11,13 +11,28 @@ import (
 	wedgemail "github.com/WedgeNix/wedgeMail"
 )
 
-func (v *Vars) order(b bananas) (taggableBananas, []error) {
+func (v *Vars) emailOrders(bans bananas) (taggableBananas, []error) {
+	hyBans := bananas{}
+	util.Log("removing monitors and hybrids from drop ship emails")
 
-	util.Log("removing monitors from drop ship emails")
+	// for vend, bun := range bans {
+	// 	if sets := v.settings[vend]; sets.Monitor && !sets.Hybrid {
+	// 		continue
+	// 	}
+
+	// 	for _, ban := range bun {
+	// 		onHand := v.onHand[ban.SKUPC]
+	// 		if ban.Quantity
+	// 	}
+	// }
 
 	for vend, set := range v.settings {
-		if set.Monitor && !set.Hybrid {
-			delete(b, vend)
+		switch {
+		case set.Hybrid:
+			hyBans[vend] = bans[vend]
+			fallthrough
+		case set.Monitor || set.Hybrid:
+			delete(bans, vend)
 		}
 	}
 
@@ -28,47 +43,27 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 		return nil, []error{util.Err(err)}
 	}
 
-	// login := util.EmailLogin{
-	// 	User: comEmailUser,
-	// 	Pass: comEmailPass,
-	// 	SMTP: comEmailSMTP,
-	// }
-
 	login, err := wedgemail.StartMail()
 	if err != nil {
 		return nil, []error{util.Err(err)}
 	}
-
-	// if sandbox {
-	// 	login.User = appUser
-	// 	login.Pass = appPass
-	// }
 
 	var emailing sync.WaitGroup
 	start := time.Now()
 
 	mailerrc := make(chan error)
 
-	hyBans := bananas{}
-
 	for V, set := range v.settings {
-		if set.Monitor && !set.Hybrid {
-			continue
-		}
-		if set.Hybrid {
-			// if B, exists := b[V]; exists {
-			// 	hyBans[V] = B
-			// }
-			hyBans[V] = b[V] // toss empties in as well
+		if set.Monitor || set.Hybrid {
 			continue
 		}
 
-		B, exists := b[V]
+		bunch, exists := bans[V]
 		if !exists {
 			util.Log("send empty email (drop ship)")
 		}
 
-		vendor, bunch := V, B // new "variables" for closure
+		vendor := V // new "variables" for closure
 
 		emailing.Add(1)
 		go func() {
@@ -126,7 +121,6 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 	util.Log("Drop ship: wait for goroutines to finish emailing")
 	emailing.Wait()
 	util.Log("Drop ship: Emailing round-trip: ", time.Since(start))
-	// login.Stop()
 
 	close(mailerrc)
 
@@ -141,5 +135,5 @@ func (v *Vars) order(b bananas) (taggableBananas, []error) {
 	if len(mailerrs) == 0 {
 		mailerrs = nil
 	}
-	return taggableBananas(b), mailerrs
+	return taggableBananas(bans), mailerrs
 }

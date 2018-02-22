@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/WedgeNix/bananas/ship"
 	"github.com/WedgeNix/util"
 	wedgemail "github.com/WedgeNix/wedgeMail"
 	"github.com/mrmiguu/un"
@@ -20,11 +21,11 @@ func (v *Vars) err(err ...error) []error {
 	return v.errs
 }
 
-func (p *payload) preserveItems() []order {
-	ords := make([]order, len(p.Orders))
+func (p *payload) preserveItems() []ship.Order {
+	ords := make([]ship.Order, len(p.Orders))
 
 	for i, ord := range p.Orders {
-		itms := make([]item, len(ord.Items))
+		itms := make([]ship.Item, len(ord.Items))
 		copy(itms, ord.Items)
 		ord.Items = itms
 
@@ -46,7 +47,7 @@ func printJSON(v interface{}) {
 
 // const theday = 0
 
-func (v *Vars) isMonAndVend(i item) (bool, string) {
+func (v *Vars) isMonAndVend(i ship.Item) (bool, string) {
 	for vend, set := range v.settings {
 		if !set.Monitor || !monitoring {
 			continue
@@ -63,7 +64,7 @@ func (v *Vars) isMonAndVend(i item) (bool, string) {
 func (v *Vars) print(p payload) error {
 	for oi, o := range p.Orders {
 		for ii, i := range o.Items {
-			grade, err := o.grade(v)
+			grade, err := gradeOrd(v, o)
 			if err != nil {
 				return err
 			}
@@ -95,11 +96,11 @@ func (v *Vars) print(p payload) error {
 func (v *Vars) arrangeOrders(f filteredPayload) (arrangedPayload, []error) {
 	errs := []error{}
 	sort.Slice(f.Orders, func(i, j int) bool {
-		iAbcdf, err := f.Orders[i].grade(v)
+		iAbcdf, err := gradeOrd(v, f.Orders[i])
 		if err != nil {
 			errs = append(errs, err)
 		}
-		jAbcdf, err := f.Orders[j].grade(v)
+		jAbcdf, err := gradeOrd(v, f.Orders[j])
 		if err != nil {
 			errs = append(errs, err)
 		}
@@ -108,21 +109,22 @@ func (v *Vars) arrangeOrders(f filteredPayload) (arrangedPayload, []error) {
 	return arrangedPayload(f), errs
 }
 
-// add places an item based on vendor and SKU into the banana bunch.
-func (v *Vars) add(bans bananas, i *item) error {
-	vend, err := v.toVendor(i.Name)
+// add places an ship.Item based on vendor and SKU into the banana bunch.
+func (v *Vars) add(bans bananas, itm *ship.Item) error {
+	vend, err := v.toVendor(itm.Name)
 	if err != nil {
 		return err
 	}
-	skupc, err := v.skupc(*i)
+	// skupc, err := v.skupc(*itm)
+	skupc, err := itm.SKUPC()
 	if err != nil {
 		return err
 	}
-	if mon, vnd := v.isMonAndVend(*i); mon && !v.settings[vnd].Hybrid {
+	if mon, vnd := v.isMonAndVend(*itm); mon && !v.settings[vnd].Hybrid {
 		println("[found non-hybrid monitor; not adding to bananas]")
 		return nil
 	}
-	v.addBan(bans, vend, banana{skupc, i.Quantity})
+	v.addBan(bans, vend, banana{skupc, itm.Quantity})
 	return nil
 }
 
@@ -184,11 +186,11 @@ func (b bunch) csv(name string) (wedgemail.Attachment, error) {
 	buf := new(bytes.Buffer)
 	csv := csv.NewWriter(buf)
 
-	if err := csv.Write([]string{"SKU/UPC", "Quantity"}); err != nil {
+	if err := csv.Write([]string{"SKU", "UPC", "Quantity"}); err != nil {
 		return att, err
 	}
 	for _, banana := range b {
-		if err := csv.Write([]string{banana.SKUPC, itoa(banana.Quantity)}); err != nil {
+		if err := csv.Write([]string{banana.SKU, banana.UPC, itoa(banana.Quantity)}); err != nil {
 			return att, err
 		}
 	}
@@ -212,7 +214,7 @@ func onlyUnique(s []string) string {
 }
 
 // Grade grades the quantity requested versus what is in stock.
-func (i item) grade(v *Vars) (float64, error) {
+func gradeItm(v *Vars, i ship.Item) (float64, error) {
 	skupc, err := v.skupc(i)
 	if err != nil {
 		return 0, util.Err(err)
@@ -233,10 +235,10 @@ func (i item) grade(v *Vars) (float64, error) {
 }
 
 // go through all vendors in the settings and return the real name if
-// the location is in the item's warehouse location
+// the location is in the ship.Item's warehouse location
 //
 // if for whatever reason it's not found, an empty string is returned
-func (v *Vars) getVend(i item) string {
+func (v *Vars) getVend(i ship.Item) string {
 	for vend, expr := range v.vendExprs {
 		// if !strings.Contains(i.WarehouseLocation, set.Location) {
 		// 	continue
@@ -250,7 +252,7 @@ func (v *Vars) getVend(i item) string {
 }
 
 // SKUPC returns the respective SKU or UPC depending on which the vendor uses.
-func (v *Vars) skupc(i item) (string, error) {
+func (v *Vars) skupc(i ship.Item) (string, error) {
 	vend, err := v.toVendor(i.Name)
 	if err != nil {
 		return "", util.Err(err)
@@ -261,23 +263,23 @@ func (v *Vars) skupc(i item) (string, error) {
 	return i.UPC, nil
 }
 
-func (v *Vars) poNum(i *item, t time.Time) (string, error) {
+func (v *Vars) poNum(i *ship.Item, t time.Time) (string, error) {
 	vend, err := v.toVendor(i.Name)
 	return util.S(v.settings[vend].PONum, "-", t.Format("20060102")), util.Err(err)
 }
 
-// Grade averages all item grades within an order or gets the quantity ratio of the item.
-func (o order) grade(v *Vars) (float64, error) {
+// Grade averages all ship.Item grades within an order or gets the quantity ratio of the ship.Item.
+func gradeOrd(v *Vars, o ship.Order) (float64, error) {
 	ratios := 0.0
 	for _, i := range o.Items {
-		abcdf, err := i.grade(v)
+		abcdf, err := gradeItm(v, i)
 		if err != nil {
 			return 0, util.Err(err)
 		}
 		ratios += abcdf
 	}
 	if ratios == math.Inf(1) {
-		v.broken[o.OrderID] = true
+		v.toBeTagged[o.OrderID] = true
 	}
 	return ratios / float64(len(o.Items)), nil
 }

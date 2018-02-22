@@ -3,9 +3,13 @@ package bananas
 import (
 	"strconv"
 	"time"
+
+	"github.com/WedgeNix/util"
 )
 
 var (
+	log = util.Log
+
 	// shipKey holds the API key for accessing ShipStation.
 	shipKey string
 

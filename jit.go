@@ -16,6 +16,9 @@ import (
 	"github.com/WedgeNix/awsapi/dir"
 	"github.com/WedgeNix/awsapi/file"
 	"github.com/WedgeNix/awsapi/types"
+	"github.com/WedgeNix/bananas/ship"
+	"github.com/WedgeNix/bananas/skc"
+	"github.com/WedgeNix/bananas/whs"
 	"github.com/WedgeNix/util"
 	wedgemail "github.com/WedgeNix/wedgeMail"
 )
@@ -106,7 +109,7 @@ func (j *jit) readAWS() (<-chan read, <-chan error) {
 type newSKU string
 
 // combs through the orders and updates entries in the AWS monitor directory
-func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, <-chan error) {
+func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []ship.Order) (<-chan newSKU, <-chan error) {
 	skuc := make(chan newSKU)
 	errc := make(chan error, 1)
 
@@ -166,7 +169,7 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []order) (<-chan newSKU, 
 
 type updated bool
 
-func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []order) (<-chan updated, <-chan error) {
+func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []ship.Order) (<-chan updated, <-chan error) {
 	upc := make(chan updated)
 	errc := make(chan error, 1)
 
@@ -380,7 +383,7 @@ func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
 		qt := int(float64(j.cfgFile.OrdXDaysWorth)*f*rtrdr + 0.5)
 		min(qt, w2)
 
-		j.bans[vend] = append(j.bans[vend], banana{sku, qt})
+		j.bans[vend] = append(j.bans[vend], banana{skc.SKUPC{SKU: sku}, qt})
 	}
 
 	return nil
@@ -399,14 +402,19 @@ func (b bananas) clean() {
 	}
 }
 
-// orders monitor SKUs only via email
-func (j *jit) order(v *Vars) []error {
+// emailOrders monitor SKUs only via email
+func (j *jit) emailOrders(v *Vars) []error {
 
 	util.Log("cleaning monitor bananas")
 	j.bans.clean()
 
 	util.Log("sorting monitor bananas")
 	j.bans.sort()
+
+	util.Log("filling monitor bananas with UPCs")
+	if err := j.fillUPCs(j.bans); err != nil {
+		return []error{err}
+	}
 
 	util.Log("parse HTML template")
 
@@ -495,19 +503,12 @@ func (j *jit) order(v *Vars) []error {
 	}
 
 	util.Log("Joining hybrids with Monitor-emailing (no doubles)")
-	for vend, bun := range <-j.hybrids {
-		sum := map[string]int{}
-		for _, ban := range bun {
+	for vend, hyBun := range <-j.hybrids {
+		sum := make(whs.Warehouse)
+		for _, ban := range hyBun { // hybrid
 			sum[ban.SKUPC] += ban.Quantity
 		}
-		for _, ban := range j.bans[vend] {
-			if v.settings[vend].UseUPC {
-				if upc, err := j.sku2upc(ban.SKUPC, vend); err != nil {
-					util.Log(err.Error() + "; using sku (unfortunately)")
-				} else {
-					ban.SKUPC = upc
-				}
-			}
+		for _, ban := range j.bans[vend] { // mon-only
 			sum[ban.SKUPC] += ban.Quantity
 		}
 		j.bans[vend] = nil
@@ -532,9 +533,9 @@ func (j *jit) order(v *Vars) []error {
 			if ban.Quantity == 0 { // hybrids toss empties in, too; don't pen in
 				continue
 			}
-			monSKU := mon.SKUs[ban.SKUPC]
+			monSKU := mon.SKUs[ban.SKU]
 			monSKU.Pending = util.LANow()
-			mon.SKUs[ban.SKUPC] = monSKU
+			mon.SKUs[ban.SKU] = monSKU
 		}
 		j.monDir[vend] = mon
 	}
@@ -555,23 +556,28 @@ func (j *jit) order(v *Vars) []error {
 	return mailerrs
 }
 
-func (j *jit) sku2upc(sku, vend string) (upc string, err error) {
-	monVend, found := j.monDir[vend]
-	if !found {
-		err = errors.New("vendor '" + vend + "' not found")
-		return
+func (j *jit) fillUPCs(bans bananas) error {
+	for vend, bun := range bans {
+		for i, ban := range bun {
+			monVend, found := j.monDir[vend]
+			if !found {
+				return errors.New("vendor '" + vend + "' not found")
+			}
+			monSKU, found := monVend.SKUs[ban.SKU]
+			if !found {
+				return errors.New("sku '" + ban.SKU + "' not found for '" + vend + "'")
+			}
+			if len(monSKU.UPC) == 0 {
+				return errors.New("no upc found for sku '" + ban.SKU + "'")
+			}
+
+			ban.UPC = monSKU.UPC
+			bun[i] = ban
+		}
+
+		bans[vend] = bun
 	}
-	monSKU, found := monVend.SKUs[sku]
-	if !found {
-		err = errors.New("sku '" + sku + "' not found for '" + vend + "'")
-		return
-	}
-	if len(monSKU.UPC) == 0 {
-		err = errors.New("no upc found for sku '" + sku + "'")
-		return
-	}
-	upc = monSKU.UPC
-	return
+	return nil
 }
 
 // record all or no changes made to the monitor directory asynchronously

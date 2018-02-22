@@ -3,6 +3,7 @@ package bananas
 import (
 	"strings"
 
+	"github.com/WedgeNix/bananas/ship"
 	"github.com/WedgeNix/util"
 )
 
@@ -15,39 +16,24 @@ func (v *Vars) filterDropShipment(pay *payload, rdc <-chan read) (filteredPayloa
 	if lO := len(pay.Orders); lO > 0 {
 		util.Log("Pre-filter order count: ", lO)
 	}
-	pay.Orders = []order{}
+	pay.Orders = []ship.Order{}
 
 	util.Log("go through all orders")
 
 OrderLoop:
 	for _, ord := range ords {
-		// cf3 := ord.AdvancedOptions.CustomField3
-
-		// if strings.Contains(cf3, "FAILED:") {
-
-		// }
-
-		// cf3 = strings.Replace(ord.AdvancedOptions.CustomField3, "FAILED:", "", -1)
-		// 	for _, vend := range strings.Split(cf3, `;`) {
-		// 	}
-
 		if strings.ContainsAny(ord.AdvancedOptions.CustomField1, "Vv") && !(sandbox && ignoreCF1) {
-			// util.Log("next order... [cf1] => ", ord.AdvancedOptions.CustomField1)
 			continue OrderLoop
 		}
 
 		items := ord.Items
-		ord.Items = []item{}
+		ord.Items = []ship.Item{}
 		for _, itm := range items {
-			w2 := v.hasVendor.MatchString(itm.WarehouseLocation)
-			mon, _ := v.isMonAndVend(itm)
-			if !(w2 || mon) {
-				continue
+			if itm.HasW2() {
+				ord.Items = append(ord.Items, itm)
 			}
-			ord.Items = append(ord.Items, itm)
 		}
-
-		if len(ord.Items) < 1 {
+		if len(ord.Items) == 0 {
 			continue
 		}
 
@@ -70,7 +56,7 @@ OrderLoop:
 			return filteredPayload{}, nil, util.MergeErr(errca, errcb, errcc)
 		}
 		go func() {
-			errs := v.j.order(v)
+			errs := v.j.emailOrders(v)
 			for _, err := range errs {
 				if err == nil {
 					continue
@@ -83,7 +69,7 @@ OrderLoop:
 	}
 
 	util.Log(`len(pay.Orders)=`, len(pay.Orders))
-	dsOrds := []order{}
+	dsOrds := []ship.Order{}
 	for _, ord := range pay.Orders {
 		if ord.OrderStatus != "awaiting_shipment" && ord.OrderStatus != "on_hold" {
 			continue

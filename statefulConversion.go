@@ -1,15 +1,18 @@
 package bananas
 
-import "github.com/WedgeNix/util"
+import (
+	"github.com/WedgeNix/bananas/ship"
+	"github.com/WedgeNix/util"
+)
 
 func (v *Vars) statefulConversion(a arrangedPayload) (bananas, error) {
 	bans := bananas{}
-	innerBroke := []order{}
+	innerBroke := []ship.Order{}
 
 	util.Log("run over all orders/items")
 
 	for _, o := range a.Orders {
-		var savedO *order
+		var savedO *ship.Order
 		for _, i := range o.Items {
 			skupc, err := v.skupc(i)
 			if err != nil {
@@ -17,7 +20,7 @@ func (v *Vars) statefulConversion(a arrangedPayload) (bananas, error) {
 				continue
 				// return nil, util.Err(err)
 			}
-			if v.broken[o.OrderID] {
+			if v.toBeTagged[o.OrderID] {
 				err = v.add(bans, &i)
 				if err != nil {
 					println(util.Err(err).Error())
