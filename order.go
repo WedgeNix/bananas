@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"html/template"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,20 +12,9 @@ import (
 	wedgemail "github.com/WedgeNix/wedgeMail"
 )
 
-func (v *Vars) emailOrders(bans bananas) (taggableBananas, []error) {
+func (v *Vars) emailOrders(bans bananas) (taggableBananas, error) {
 	hyBans := bananas{}
 	util.Log("removing monitors and hybrids from drop ship emails")
-
-	// for vend, bun := range bans {
-	// 	if sets := v.settings[vend]; sets.Monitor && !sets.Hybrid {
-	// 		continue
-	// 	}
-
-	// 	for _, ban := range bun {
-	// 		onHand := v.onHand[ban.SKUPC]
-	// 		if ban.Quantity
-	// 	}
-	// }
 
 	for vend, set := range v.settings {
 		switch {
@@ -40,18 +30,18 @@ func (v *Vars) emailOrders(bans bananas) (taggableBananas, []error) {
 
 	tmpl, err := template.ParseFiles("vendor-email-tmpl.html")
 	if err != nil {
-		return nil, []error{util.Err(err)}
+		return nil, err
 	}
 
 	login, err := wedgemail.StartMail()
 	if err != nil {
-		return nil, []error{util.Err(err)}
+		return nil, err
 	}
 
 	var emailing sync.WaitGroup
 	start := time.Now()
 
-	mailerrc := make(chan error)
+	mailErrc := make(chan error)
 
 	for V, set := range v.settings {
 		if set.Monitor || set.Hybrid {
@@ -86,7 +76,7 @@ func (v *Vars) emailOrders(bans bananas) (taggableBananas, []error) {
 			err := tmpl.Execute(buf, inj)
 			if err != nil {
 				util.Log(vendor, " ==> ", bunch)
-				mailerrc <- err
+				mailErrc <- err
 				return
 			}
 
@@ -99,7 +89,7 @@ func (v *Vars) emailOrders(bans bananas) (taggableBananas, []error) {
 			if v.settings[vendor].FileDownload && len(bunch) > 0 {
 				att, err = bunch.csv(po + ".csv")
 				if err != nil {
-					mailerrc <- err
+					mailErrc <- err
 				}
 			}
 
@@ -107,7 +97,7 @@ func (v *Vars) emailOrders(bans bananas) (taggableBananas, []error) {
 				email := buf.String()
 				err := login.Email(to, "WedgeNix PO#: "+po, email, att)
 				if err != nil {
-					mailerrc <- errors.New("error in emailing " + vendor)
+					mailErrc <- errors.New("error in emailing " + vendor)
 				}
 			}
 		}()
@@ -122,18 +112,22 @@ func (v *Vars) emailOrders(bans bananas) (taggableBananas, []error) {
 	emailing.Wait()
 	util.Log("Drop ship: Emailing round-trip: ", time.Since(start))
 
-	close(mailerrc)
+	close(mailErrc)
 
-	mailerrs := []error{}
-	for mailerr := range mailerrc {
-		if mailerr == nil {
-			continue
+	var errs []string
+	for err := range mailErrc { // drop ship email errors
+		if err != nil {
+			errs = append(errs, err.Error())
 		}
-		mailerrs = append(mailerrs, mailerr)
+	}
+	for err := range v.j.mailErr { // wait for monitor emails to finish
+		if err != nil {
+			errs = append(errs, err.Error())
+		}
 	}
 
-	if len(mailerrs) == 0 {
-		mailerrs = nil
+	if len(errs) > 0 {
+		err = errors.New(strings.Join(errs, ", "))
 	}
-	return taggableBananas(bans), mailerrs
+	return taggableBananas(bans), err
 }

@@ -68,7 +68,7 @@ func Run() []error {
 	util.Log("reading from AWS")
 
 	j := <-jc
-	rdc, errc := j.readAWS()
+	rdc, errc := j.ReadAWS()
 	if err := <-errc; err != nil {
 		return []error{util.Err(err)}
 	}
@@ -171,17 +171,21 @@ func Run() []error {
 
 	util.Log("email the respective orders")
 
-	taggableBans, errs := v.emailOrders(bans)
-	v.err(errs...)
+	taggableBans, err := v.emailOrders(bans)
+	if err != nil {
+		return v.err(err)
+	}
 
 	util.Log("tag the orders on ShipStation")
 
 	err = v.tagAndUpdate(taggableBans)
-	v.err(err)
+	if err != nil {
+		return v.err(err)
+	}
 
 	if !sandbox && monitoring && !dontEmailButCreateOrders {
 		util.Log("save config file on AWS")
-		errc = v.j.saveAWSChanges(upc)
+		errc = v.j.SaveAWSChanges(upc)
 		if err = <-errc; err != nil {
 			return v.err(err)
 		}

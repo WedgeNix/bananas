@@ -48,22 +48,14 @@ OrderLoop:
 	if !dontEmailButCreateOrders {
 		v.rdOrdWg.Add(2)
 
-		skuc, errca := v.j.updateAWS(rdc, v, ords)
-		upc, errcb = v.j.updateNewSKUs(skuc, v, ords)
-		if err := v.j.prepareMonMail(upc, v); err != nil {
+		skuc, errca := v.j.UpdateAWS(rdc, v, ords)
+		upc, errcb = v.j.UpdateNewSKUs(skuc, v, ords)
+		if err := v.j.PrepareMonMail(upc, v); err != nil {
 			util.Log(err)
 			errcc <- err
 			return filteredPayload{}, nil, util.MergeErr(errca, errcb, errcc)
 		}
-		go func() {
-			errs := v.j.emailOrders(v)
-			for _, err := range errs {
-				if err == nil {
-					continue
-				}
-				util.Log(err)
-			}
-		}()
+		go v.j.EmailOrders(v)
 
 		v.rdOrdWg.Wait()
 	}
@@ -71,10 +63,10 @@ OrderLoop:
 	util.Log(`len(pay.Orders)=`, len(pay.Orders))
 	dsOrds := []ship.Order{}
 	for _, ord := range pay.Orders {
-		if ord.OrderStatus != "awaiting_shipment" && ord.OrderStatus != "on_hold" {
-			continue
+		switch ord.OrderStatus {
+		case ship.AwaitingShipment, ship.OnHold:
+			dsOrds = append(dsOrds, ord)
 		}
-		dsOrds = append(dsOrds, ord)
 	}
 
 	if len(pay.Orders) < 1 {

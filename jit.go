@@ -36,6 +36,7 @@ type jit struct {
 	soldToday map[string]bool
 	bans      bananas
 	hybrids   chan bananas
+	mailErr   chan error
 }
 
 // create a new just-in-time handler
@@ -52,6 +53,7 @@ func newJIT() (<-chan jit, <-chan error) {
 			monDir:  dir.BananasMon{},
 			bans:    bananas{},
 			hybrids: make(chan bananas, 1),
+			mailErr: make(chan error, 1),
 		}
 
 		ac, err := awsapi.New()
@@ -75,7 +77,7 @@ func newJIT() (<-chan jit, <-chan error) {
 type read bool
 
 // read in the entire monitor directory asynchronously
-func (j *jit) readAWS() (<-chan read, <-chan error) {
+func (j *jit) ReadAWS() (<-chan read, <-chan error) {
 	rdc := make(chan read)
 	errc := make(chan error, 1)
 
@@ -109,7 +111,7 @@ func (j *jit) readAWS() (<-chan read, <-chan error) {
 type newSKU string
 
 // combs through the orders and updates entries in the AWS monitor directory
-func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []ship.Order) (<-chan newSKU, <-chan error) {
+func (j *jit) UpdateAWS(rdc <-chan read, v *Vars, ords []ship.Order) (<-chan newSKU, <-chan error) {
 	skuc := make(chan newSKU)
 	errc := make(chan error, 1)
 
@@ -169,7 +171,7 @@ func (j *jit) updateAWS(rdc <-chan read, v *Vars, ords []ship.Order) (<-chan new
 
 type updated bool
 
-func (j *jit) updateNewSKUs(skuc <-chan newSKU, v *Vars, ords []ship.Order) (<-chan updated, <-chan error) {
+func (j *jit) UpdateNewSKUs(skuc <-chan newSKU, v *Vars, ords []ship.Order) (<-chan updated, <-chan error) {
 	upc := make(chan updated)
 	errc := make(chan error, 1)
 
@@ -330,7 +332,7 @@ func (j *jit) monToSKUs(poDay bool) ([]string, error) {
 	return skus, nil
 }
 
-func (j *jit) prepareMonMail(updateCh <-chan updated, v *Vars) error {
+func (j *jit) PrepareMonMail(updateCh <-chan updated, v *Vars) error {
 
 	util.Log("matching P.O. days with today")
 
@@ -403,7 +405,8 @@ func (b bananas) clean() {
 }
 
 // emailOrders monitor SKUs only via email
-func (j *jit) emailOrders(v *Vars) []error {
+func (j *jit) EmailOrders(v *Vars) {
+	defer close(j.mailErr)
 
 	util.Log("cleaning monitor bananas")
 	j.bans.clean()
@@ -413,19 +416,22 @@ func (j *jit) emailOrders(v *Vars) []error {
 
 	util.Log("filling monitor bananas with UPCs")
 	if err := j.fillUPCs(j.bans); err != nil {
-		return []error{err}
+		j.mailErr <- err
+		return
 	}
 
 	util.Log("parse HTML template")
 
 	tmpl, err := template.ParseFiles("vendor-email-tmpl.html")
 	if err != nil {
-		return []error{util.Err(err)}
+		j.mailErr <- err
+		return
 	}
 
 	login, err := wedgemail.StartMail()
 	if err != nil {
-		return []error{util.Err(err)}
+		j.mailErr <- err
+		return
 	}
 
 	// login := util.EmailLogin{
@@ -442,7 +448,7 @@ func (j *jit) emailOrders(v *Vars) []error {
 	var emailing sync.WaitGroup
 	start := time.Now()
 
-	mailerrc := make(chan error)
+	mailErrc := make(chan error)
 
 	emailThem := func(vend string, bun bunch) {
 		defer util.Log("goroutine is finished emailing an email")
@@ -476,7 +482,7 @@ func (j *jit) emailOrders(v *Vars) []error {
 		err := tmpl.Execute(buf, inj)
 		if err != nil {
 			util.Log(vend, " ==> ", bun)
-			mailerrc <- util.Err(err)
+			mailErrc <- util.Err(err)
 			return
 		}
 
@@ -489,7 +495,7 @@ func (j *jit) emailOrders(v *Vars) []error {
 		if v.settings[vend].FileDownload && len(bun) > 0 {
 			att, err = bun.csv(vend + ".csv")
 			if err != nil {
-				mailerrc <- err
+				mailErrc <- err
 			}
 		}
 
@@ -497,7 +503,7 @@ func (j *jit) emailOrders(v *Vars) []error {
 			email := buf.String()
 			err := login.Email(to, "WedgeNix PO#: "+po, email, att)
 			if err != nil {
-				mailerrc <- errors.New("error in emailing " + vend)
+				mailErrc <- errors.New("error in emailing " + vend)
 			}
 		}
 	}
@@ -540,20 +546,11 @@ func (j *jit) emailOrders(v *Vars) []error {
 		j.monDir[vend] = mon
 	}
 
-	close(mailerrc)
+	close(mailErrc)
 
-	mailerrs := []error{}
-	for mailerr := range mailerrc {
-		if mailerr == nil {
-			continue
-		}
-		mailerrs = append(mailerrs, mailerr)
+	for err := range mailErrc {
+		j.mailErr <- err
 	}
-
-	if len(mailerrs) < 1 {
-		mailerrs = nil
-	}
-	return mailerrs
 }
 
 func (j *jit) fillUPCs(bans bananas) error {
@@ -568,7 +565,9 @@ func (j *jit) fillUPCs(bans bananas) error {
 				return errors.New("sku '" + ban.SKU + "' not found for '" + vend + "'")
 			}
 			if len(monSKU.UPC) == 0 {
-				return errors.New("no upc found for sku '" + ban.SKU + "'")
+				err := errors.New("no upc found for sku '" + ban.SKU + "'")
+				// return
+				log(err)
 			}
 
 			ban.UPC = monSKU.UPC
@@ -581,7 +580,7 @@ func (j *jit) fillUPCs(bans bananas) error {
 }
 
 // record all or no changes made to the monitor directory asynchronously
-func (j *jit) saveAWSChanges(upc <-chan updated) <-chan error {
+func (j *jit) SaveAWSChanges(upc <-chan updated) <-chan error {
 	errc := make(chan error)
 
 	go func() {
