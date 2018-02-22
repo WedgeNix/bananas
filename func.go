@@ -120,11 +120,16 @@ func (v *Vars) add(bans bananas, itm *ship.Item) error {
 	if err != nil {
 		return err
 	}
-	if mon, vnd := v.isMonAndVend(*itm); mon && !v.settings[vnd].Hybrid {
+	sets := v.settings[vend]
+	if mon, _ := v.isMonAndVend(*itm); mon && !sets.Hybrid {
 		println("[found non-hybrid monitor; not adding to bananas]")
 		return nil
 	}
-	v.addBan(bans, vend, banana{skupc, itm.Quantity})
+	prodID := skupc.SKU
+	if sets.UseUPC {
+		prodID = skupc.UPC
+	}
+	v.addBan(bans, vend, banana{skupc, prodID, itm.Quantity})
 	return nil
 }
 

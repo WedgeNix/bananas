@@ -3,7 +3,7 @@ package bananas
 const (
 	// removes real world side effects to testing purposes
 	sandbox    = false
-	ignoreCF1  = true
+	ignoreCF1  = false
 	monitoring = true
 
 	shipURL   = "https://ssapi.shipstation.com/"

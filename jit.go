@@ -385,7 +385,7 @@ func (j *jit) PrepareMonMail(updateCh <-chan updated, v *Vars) error {
 		qt := int(float64(j.cfgFile.OrdXDaysWorth)*f*rtrdr + 0.5)
 		min(qt, w2)
 
-		j.bans[vend] = append(j.bans[vend], banana{skc.SKUPC{SKU: sku}, qt})
+		j.bans[vend] = append(j.bans[vend], banana{skc.SKUPC{SKU: sku}, sku, qt})
 	}
 
 	return nil
@@ -519,7 +519,12 @@ func (j *jit) EmailOrders(v *Vars) {
 		}
 		j.bans[vend] = nil
 		for skupc, qt := range sum {
-			j.bans[vend] = append(j.bans[vend], banana{skupc, qt})
+			sets := v.settings[vend]
+			prodID := skupc.SKU
+			if sets.UseUPC {
+				prodID = skupc.UPC
+			}
+			j.bans[vend] = append(j.bans[vend], banana{skupc, prodID, qt})
 		}
 	}
 

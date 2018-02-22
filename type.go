@@ -77,7 +77,8 @@ type arrangedPayload payload
 // Banana is a single order to be requested for a vendor.
 type banana struct {
 	skc.SKUPC
-	Quantity int
+	ProductID string
+	Quantity  int
 }
 
 // Bunch is a slice of bananas.
