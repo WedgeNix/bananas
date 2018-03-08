@@ -2,13 +2,15 @@ package bananas
 
 import (
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/WedgeNix/util"
 )
 
 var (
-	log = util.Log
+	contains = strings.Contains
+	log      = util.Log
 
 	// shipKey holds the API key for accessing ShipStation.
 	shipKey string

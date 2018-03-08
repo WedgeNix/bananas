@@ -5,6 +5,7 @@ const (
 	sandbox    = false
 	ignoreCF1  = false
 	monitoring = true
+	dontTag    = false
 
 	shipURL   = "https://ssapi.shipstation.com/"
 	ssDateFmt = "2006-01-02 15:04:05"

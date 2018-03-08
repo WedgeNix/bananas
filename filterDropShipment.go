@@ -22,7 +22,7 @@ func (v *Vars) filterDropShipment(pay *payload, rdc <-chan read) (filteredPayloa
 
 OrderLoop:
 	for _, ord := range ords {
-		if strings.ContainsAny(ord.AdvancedOptions.CustomField1, "Vv") && !(sandbox && ignoreCF1) {
+		if strings.ContainsAny(ord.AdvancedOptions.CustomField1, "Vv") && !ignoreCF1 {
 			continue OrderLoop
 		}
 

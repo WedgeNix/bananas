@@ -40,7 +40,7 @@ func (v *Vars) tagAndUpdate(b taggableBananas) error {
 		}
 	}
 
-	if sandbox || tagCnt == 0 {
+	if dontTag || sandbox || tagCnt == 0 {
 		return nil
 	}
 

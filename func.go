@@ -111,6 +111,9 @@ func (v *Vars) arrangeOrders(f filteredPayload) (arrangedPayload, []error) {
 
 // add places an ship.Item based on vendor and SKU into the banana bunch.
 func (v *Vars) add(bans bananas, itm *ship.Item) error {
+	if contains(itm.WarehouseLocation, "W2-VONDUTCH") {
+		return nil
+	}
 	vend, err := v.toVendor(itm.Name)
 	if err != nil {
 		return err
@@ -258,17 +261,23 @@ func (v *Vars) getVend(i ship.Item) string {
 
 // SKUPC returns the respective SKU or UPC depending on which the vendor uses.
 func (v *Vars) skupc(i ship.Item) (string, error) {
-	vend, err := v.toVendor(i.Name)
-	if err != nil {
-		return "", util.Err(err)
-	}
-	if !v.settings[vend].UseUPC {
+	if contains(i.WarehouseLocation, "W2-VONDUTCH") {
 		return i.SKU, nil
 	}
-	return i.UPC, nil
+	vend, err := v.toVendor(i.Name)
+	if err != nil {
+		return "", err
+	}
+	if v.settings[vend].UseUPC {
+		return i.UPC, nil
+	}
+	return i.SKU, nil
 }
 
 func (v *Vars) poNum(i *ship.Item, t time.Time) (string, error) {
+	if contains(i.WarehouseLocation, "W2-VONDUTCH") {
+		return "", nil
+	}
 	vend, err := v.toVendor(i.Name)
 	return util.S(v.settings[vend].PONum, "-", t.Format("20060102")), util.Err(err)
 }
