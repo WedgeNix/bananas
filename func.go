@@ -49,7 +49,7 @@ func printJSON(v interface{}) {
 
 func (v *Vars) isMonAndVend(i ship.Item) (bool, string) {
 	for vend, set := range v.settings {
-		if !set.Monitor || !monitoring {
+		if !set.Monitor || dsOnly {
 			continue
 		}
 		if !v.vendExprs[vend].MatchString(i.Name) {

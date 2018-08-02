@@ -29,6 +29,7 @@ var (
 	appPass      string
 
 	// hit intended to exist in memory until the controlling mux dies
+	sandbox                  bool
 	hit                      bool
 	paperless                bool
 	dontEmailButCreateOrders bool

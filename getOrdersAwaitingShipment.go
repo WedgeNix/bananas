@@ -24,7 +24,7 @@ func (v *Vars) getOrdersAwaitingShipment() (*payload, error) {
 	util.Log(`last=`, a)
 	util.Log(`today=`, b)
 	// 3/4ths of a day to give wiggle room for Matt's timing
-	if b.Sub(a).Hours()/24 < 0.75 {
+	if !sandbox && b.Sub(a).Hours()/24 < 0.75 {
 		return nil, util.NewErr("same day still; reset AWS config LastLA date")
 	}
 

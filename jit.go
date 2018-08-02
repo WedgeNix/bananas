@@ -23,10 +23,6 @@ import (
 	wedgemail "github.com/WedgeNix/wedgeMail"
 )
 
-const (
-	emailUsJITOnly = false
-)
-
 type jit struct {
 	ac        *awsapi.Controller
 	sc        *skuvault.Ctr
@@ -361,7 +357,7 @@ func (j *jit) PrepareMonMail(updateCh <-chan updated, v *Vars) error {
 	for sku, locs := range resp.Items {
 		w1, w2 := locsAndExterns(locs)
 
-		if w2 < 1 {
+		if w2 == 0 {
 			continue
 		}
 
@@ -383,9 +379,10 @@ func (j *jit) PrepareMonMail(updateCh <-chan updated, v *Vars) error {
 		}
 
 		qt := int(float64(j.cfgFile.OrdXDaysWorth)*f*rtrdr + 0.5)
-		min(qt, w2)
+		// min(qt, w2)
 
 		j.bans[vend] = append(j.bans[vend], banana{skc.SKUPC{SKU: sku}, sku, qt})
+
 	}
 
 	return nil
@@ -499,6 +496,10 @@ func (j *jit) EmailOrders(v *Vars) {
 			}
 		}
 
+		if sandbox {
+			return
+		}
+
 		if !paperless {
 			email := buf.String()
 			err := login.Email(to, "WedgeNix PO#: "+po, email, att)
@@ -527,6 +528,9 @@ func (j *jit) EmailOrders(v *Vars) {
 			j.bans[vend] = append(j.bans[vend], banana{skupc, prodID, qt})
 		}
 	}
+
+	util.Log("HYBRID/MONITOR:")
+	j.bans = j.bans.sort().print()
 
 	util.Log("Emailing any hybrids and/or monitors")
 	for vend, bun := range j.bans {
@@ -596,7 +600,7 @@ func (j *jit) SaveAWSChanges(upc <-chan updated) <-chan error {
 		// 	errc <- util.Err(err)
 		// }
 
-		if !monitoring {
+		if dsOnly {
 			errc <- nil
 			return
 		}

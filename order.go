@@ -93,6 +93,10 @@ func (v *Vars) emailOrders(bans bananas) (taggableBananas, error) {
 				}
 			}
 
+			if sandbox {
+				return
+			}
+
 			if !paperless && !dontEmailButCreateOrders {
 				email := buf.String()
 				err := login.Email(to, "WedgeNix PO#: "+po, email, att)

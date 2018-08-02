@@ -2,10 +2,10 @@ package bananas
 
 const (
 	// removes real world side effects to testing purposes
-	sandbox    = false
-	ignoreCF1  = false
-	monitoring = true
-	dontTag    = false
+	ignoreCF1      = false
+	dsOnly         = false
+	dontTag        = false
+	emailUsJITOnly = false
 
 	shipURL   = "https://ssapi.shipstation.com/"
 	ssDateFmt = "2006-01-02 15:04:05"

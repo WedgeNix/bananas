@@ -12,6 +12,12 @@ import (
 	"github.com/WedgeNix/warehouse-settings/app"
 )
 
+// RunSandbox runs Bananas® with no stateful changes.
+func RunSandbox() []error {
+	sandbox = true
+	return Run()
+}
+
 // CreateOrdersOnly runs Bananas® only creating orders on Ship Station.
 func CreateOrdersOnly() []error {
 	paperless = true
@@ -27,7 +33,7 @@ func RunPaperless() []error {
 
 // Run initializes all package-level variables.
 func Run() []error {
-	if hit && !paperless {
+	if !sandbox && hit && !paperless {
 		util.Log("bananas already hit; we don't want to re-email everyone")
 		return []error{nil}
 	}
@@ -36,9 +42,6 @@ func Run() []error {
 	shipKey = os.Getenv("SHIP_API_KEY")
 	shipSecret = os.Getenv("SHIP_API_SECRET")
 	settingsURL = os.Getenv("SETTINGS_URL")
-	// comEmailUser = os.Getenv("COM_EMAIL_USER")
-	// comEmailPass = os.Getenv("COM_EMAIL_PASS")
-	// comEmailSMTP = os.Getenv("COM_EMAIL_SMTP")
 	appUser = os.Getenv("APP_EMAIL_USER")
 	appPass = os.Getenv("APP_EMAIL_PASS")
 
@@ -48,9 +51,6 @@ func Run() []error {
 	if err := wedgenix.Settings(&sets); err != nil {
 		return []error{err}
 	}
-	// if len(sets) < 1 {
-	// 	return []error{util.NewErr("empty settings response")}
-	// }
 
 	// printJSON(sets)
 
@@ -59,6 +59,8 @@ func Run() []error {
 	for vend, set := range sets {
 		exprs[vend] = regexp.MustCompile(set.Regex)
 	}
+
+	util.Log("initializing monitor")
 
 	jc, errc := newJIT()
 	if err := <-errc; err != nil {
@@ -105,19 +107,6 @@ func Run() []error {
 			return v.err(err)
 		}
 	}
-	// dsOrds := filteredPay.Orders
-
-	// onHand := make(whs.Warehouse)
-	// for _, ord := range dsOrds {
-	// 	for _, itm := range ord.Items {
-	// 		skupc, err := itm.SKUPC()
-	// 		if err != nil {
-	// 			return []error{err}
-	// 		}
-	// 		onHand[skupc] = itm.OnHand()
-	// 	}
-	// }
-	// v.onHand = onHand
 
 	util.Log("arrange the orders based on time-preference grading")
 
@@ -134,35 +123,8 @@ func Run() []error {
 
 	util.Log("place higher needed quantities on top for emails")
 
-	// sortedBans := bans.sort().print()
-	// sortedBans := bans.sort().print()
-	// sortedBans := bans.sort().print()
-
-	// bought, err := ship.AllBought(ords)
-	// if err != nil {
-	// 	return []error{err}
-	// }
-
-	// log(bought, "^^^ bought since last hit")
-	// log()
-
-	// w1, err := ship.AllW1(ords)
-	// if err != nil {
-	// 	return []error{err}
-	// }
-
-	// log(w1, "^^^ on hand (w1)")
-	// log()
-
-	// toBuy, err := ship.AllToBuy(w1, ords)
-	// if err != nil {
-	// 	return []error{err}
-	// }
-
-	// log(toBuy, "^^^ sku/upc(s) to order from vendors")
-	// log()
-
-	// bans := make(bananas)
+	util.Log("DROP SHIP:")
+	bans = bans.sort().print()
 
 	//
 	// Honestly stateful stuff (real world)
@@ -183,7 +145,7 @@ func Run() []error {
 		return v.err(err)
 	}
 
-	if !sandbox && monitoring && !dontEmailButCreateOrders {
+	if !sandbox && !dsOnly && !dontEmailButCreateOrders {
 		util.Log("save config file on AWS")
 		errc = v.j.SaveAWSChanges(upc)
 		if err = <-errc; err != nil {
