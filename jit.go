@@ -272,7 +272,7 @@ func (j *jit) vendAvgWaitMonSKU(sku string) (string, float64, types.BananasMonSK
 			return vend, mon.AvgWait, monSKU
 		}
 	}
-	panic("skuToMonVend: can't find sku in monitor directory")
+	panic("skuToMonVend: can't find sku:" + sku + " in monitor directory")
 }
 
 func (j *jit) monToSKUs(poDay bool) ([]string, error) {
