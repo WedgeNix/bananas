@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"math"
+	"strings"
 	"sync"
 	"time"
 
@@ -267,11 +268,14 @@ func (j *jit) vendAvgWaitMonSKU(sku string) (string, float64, types.BananasMonSK
 	for vend, mon := range j.monDir {
 		for msku, monSKU := range mon.SKUs {
 			if sku != msku {
-				continue
+				if strings.ToUpper(sku) != msku {
+					continue
+				}
 			}
 			return vend, mon.AvgWait, monSKU
 		}
 	}
+
 	panic("skuToMonVend: can't find sku:" + sku + " in monitor directory")
 }
 
