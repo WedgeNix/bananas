@@ -203,7 +203,12 @@ func (j *jit) UpdateNewSKUs(skuc <-chan newSKU, v *Vars, ords []ship.Order) (<-c
 		util.Log("skuvault payload:")
 		util.Log(pay)
 		// these are all brand new entries on the AWS database
-		resp := j.sc.Products.GetProducts(&pay)
+		resp, err := j.sc.Products.GetProducts(&pay)
+		if err != nil {
+			errc <- util.Err(err)
+			upc <- false
+			return
+		}
 		for _, err := range resp.Errors {
 			err, ok := err.(error)
 			if err == nil {
@@ -357,8 +362,10 @@ func (j *jit) PrepareMonMail(updateCh <-chan updated, v *Vars) error {
 		return nil
 	}
 	pay := inventory.GetInventoryByLocation{ProductSKUs: skus}
-	resp := j.sc.Inventory.GetInventoryByLocation(&pay)
-
+	resp, err := j.sc.Inventory.GetInventoryByLocation(&pay)
+	if err != nil {
+		return err
+	}
 	for sku, locs := range resp.Items {
 		w1, w2 := locsAndExterns(locs)
 

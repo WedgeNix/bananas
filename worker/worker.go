@@ -46,7 +46,10 @@ func StartWorker(c *gin.Context) error {
 	util.Log(pld)
 	var scanned string
 	for {
-		resp := sc.Inventory.GetTransactions(pld)
+		resp, err := sc.Inventory.GetTransactions(pld)
+		if err != nil {
+			return err
+		}
 		pld.PageNumber++
 		util.Log(resp)
 
