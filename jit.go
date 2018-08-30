@@ -200,7 +200,8 @@ func (j *jit) UpdateNewSKUs(skuc <-chan newSKU, v *Vars, ords []ship.Order) (<-c
 		}
 
 		util.Log("grabbing SkuVault product information")
-
+		util.Log("skuvault payload:")
+		util.Log(pay)
 		// these are all brand new entries on the AWS database
 		resp := j.sc.Products.GetProducts(&pay)
 		for _, err := range resp.Errors {
