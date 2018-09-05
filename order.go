@@ -54,13 +54,13 @@ func (v *Vars) emailOrders(bans bananas) (taggableBananas, error) {
 		}
 
 		vendor := V // new "variables" for closure
-
+		util.Log("Emailing this Vendor: " + V)
 		emailing.Add(1)
 		go func() {
-			defer util.Log("goroutine is finished emailing an email")
+			defer util.Log("goroutine is finished emailing an email to " + vendor)
 			defer emailing.Done()
 
-			util.Log("goroutine is starting to email a drop ship vendor")
+			util.Log("goroutine is starting to email a drop ship vendor: " + vendor)
 
 			t := util.LANow()
 			po := v.settings[vendor].PONum + "-" + t.Format("20060102")
