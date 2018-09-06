@@ -205,6 +205,8 @@ func (j *jit) UpdateNewSKUs(skuc <-chan newSKU, v *Vars, ords []ship.Order) (<-c
 		// these are all brand new entries on the AWS database
 		resp, err := j.sc.Products.GetProducts(&pay)
 		if err != nil {
+			fmt.Println("Products.GetProducts error")
+			v.rdOrdWg.Done()
 			errc <- util.Err(err)
 			upc <- false
 			return
@@ -509,9 +511,9 @@ func (j *jit) EmailOrders(v *Vars) {
 			}
 		}
 
-		if sandbox {
-			return
-		}
+		// if sandbox {
+		// 	return
+		// }
 
 		if !paperless {
 			email := buf.String()
