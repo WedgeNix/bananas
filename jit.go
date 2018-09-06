@@ -460,7 +460,7 @@ func (j *jit) EmailOrders(v *Vars) {
 	mailErrc := make(chan error)
 
 	emailThem := func(vend string, bun bunch) {
-		defer util.Log("goroutine is finished emailing an email")
+		defer util.Log("goroutine is finished emailing an email:" + vend)
 		defer emailing.Done()
 
 		set := v.settings[vend]
@@ -471,11 +471,12 @@ func (j *jit) EmailOrders(v *Vars) {
 			util.Log("send empty email (hybrid)")
 		}
 
-		x := "Monitor"
-		if set.Hybrid {
-			x = "Hybrid"
-		}
-		util.Log("goroutine is starting to email a " + x + " vendor")
+		// x := "Monitor"
+		// if set.Hybrid {
+		// 	x = "Hybrid"
+		// }
+		// util.Log("goroutine is starting to email a " + x + " vendor")
+		util.Log("goroutine is starting to email " + vend)
 
 		t := util.LANow()
 		po := v.settings[vend].PONum + "-" + t.Format("20060102")
